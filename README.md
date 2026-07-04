@@ -82,7 +82,6 @@ iteration.
   the Files app under the game's folder. Under investigation.
 - Backgrounding mid-game can occasionally crash on iOS — the lifecycle pause covers
   the common paths; a rare race remains. Save often.
-- EVA/announcer speech is silent on iOS in some modes — under active investigation.
 
 ## License & credits
 
@@ -91,3 +90,8 @@ not included, not licensed here. Credits: Westwood/EA Pacific (the game), EA (th
 source release), fbraz3/GeneralsX (the base port),
 TheSuperHackers/GeneralsGameCode (community mainline), DXVK, MoltenVK, SDL,
 OpenAL Soft, FFmpeg, Liberation Fonts.
+
+This port was built as a human+AI collaboration: engineering by
+[Claude Code](https://claude.com/claude-code) (Anthropic's Claude, Fable model),
+directed and playtested on real devices by Ammaar Reshi. The engineering log in
+`docs/port/` is the unedited record of how that worked.
