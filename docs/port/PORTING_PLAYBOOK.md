@@ -4,7 +4,7 @@
 
 **Case study: Command & Conquer Generals — Zero Hour (2003, Win32/DirectX 8) → iPhone 17 Pro Max + iPad mini, fully playable, June 2026.**
 
-This documents every decision, problem, and fix from the project so that any engineer or agent can repeat it — for this game or a similar one. Total effort: one long working session. Source tree: `~/Development/generals-port/GeneralsX` (fork of fbraz3/GeneralsX). All file references below are relative to that tree unless absolute.
+This documents every decision, problem, and fix from the project so that any engineer or agent can repeat it — for this game or a similar one. Total effort: one long working session. Source tree: `the repo root` (fork of fbraz3/GeneralsX). All file references below are relative to that tree unless absolute.
 
 ---
 
@@ -79,7 +79,7 @@ Strategy: prove each dependency for `arm64-ios` *standalone* before integrating;
 | fontconfig | **dropped on iOS** | Its dep libiconv fails autotools cross-detect (configure exit 77: same host/build triple, tries to run iOS binaries). Don't fight it — fontconfig exists for *system font discovery*, which iOS doesn't offer anyway. Replaced with bundled-font lookup (§4). Manifest: `"platform": "!windows & !ios"` |
 | FFmpeg | vcpkg, **version override required** | Project baseline pinned 7.1.1 → fails on iOS (`tls_securetransport.c` partial-availability with `-Werror=partial-availability`). Override to 8.1.1 in `vcpkg.json` `overrides`; 8.x also needs an override entry for helper port `ffmpeg-bin2c` (absent from old baselines) |
 | SDL3 | standalone CMake: `-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DSDL_SHARED=ON -DSDL_STATIC=ON` | Trivial; SDL3's iOS support is first-class |
-| DXVK 2.6 (d3d8+d3d9) | meson **cross file** (`cmake/meson-arm64-ios-cross.ini`) | `[host_machine] system = 'darwin'`; sysroot/min-version in `[built-in options]` args. SDL3 must resolve via `PKG_CONFIG_PATH` at `meson setup` or you get the silent SDL2 fallback again. Verify `LC_BUILD_VERSION platform 2` (`otool -l`) and `Sdl3WsiDriver` (`strings`) |
+| DXVK 2.6 (d3d8+d3d9) | meson **cross file** (`cmake/meson-arm64-ios-cross.ini.in`) | `[host_machine] system = 'darwin'`; sysroot/min-version in `[built-in options]` args. SDL3 must resolve via `PKG_CONFIG_PATH` at `meson setup` or you get the silent SDL2 fallback again. Verify `LC_BUILD_VERSION platform 2` (`otool -l`) and `Sdl3WsiDriver` (`strings`) |
 | MoltenVK | Two artifacts, two roles | **Static** `libMoltenVK.a` (Vulkan SDK xcframework `ios-arm64` slice) satisfies CMake `find_package(Vulkan COMPONENTS MoltenVK)` at link. **Dynamic** `MoltenVK.framework` (Khronos GitHub release `MoltenVK-ios.tar`, `dynamic/MoltenVK.xcframework/ios-arm64/`) is what DXVK `dlopen`s at runtime |
 
 **Checking an artifact really targets iOS:** `otool -l <bin> | grep -A2 LC_BUILD_VERSION` → `platform 2`.
@@ -207,7 +207,7 @@ Architecture: translate touch → synthetic SDL mouse events injected through th
 | File | Purpose |
 |---|---|
 | `CMakeUserPresets.json` | `ios-vulkan` preset (CMAKE_SYSTEM_NAME=iOS, arm64-ios triplet, Vulkan/MoltenVK cache vars, tools off) |
-| `cmake/meson-arm64-ios-cross.ini` | DXVK meson cross file (iPhoneOS sysroot) |
+| `cmake/meson-arm64-ios-cross.ini.in` | DXVK meson cross file (iPhoneOS sysroot) |
 | `cmake/dx8.cmake` | sdl3.pc generation + PKG_CONFIG_PATH for DXVK meson; iOS cross-file selection; local-fork switch |
 | `cmake/openal.cmake` | vendored-fmt include-order pin |
 | `cmake/ffmpeg_framework_fix.cmake` | `-framework` pair merge for PkgConfig::FFMPEG (call after EVERY pkg_check_modules) |

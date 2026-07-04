@@ -89,7 +89,7 @@ for lib in \
         echo "    embedded $(basename "${lib}")"
     else
         case "$(basename "${lib}")" in
-            libgamespy.dylib|libopenal.1.dylib)
+            libgamespy.dylib)
                 echo "    (skip, optional: $(basename "${lib}"))" ;;
             *)
                 echo "ERROR: required dylib not built: ${lib}"

@@ -67,6 +67,31 @@ elseif(APPLE AND SAGE_USE_MOLTENVK)
   if(SAGE_DXVK_USE_LOCAL_FORK AND EXISTS "${DXVK_LOCAL_FORK_DIR}/.git")
     set(DXVK_SOURCE_DIR "${DXVK_LOCAL_FORK_DIR}")
     message(STATUS "DXVK macOS build: using local fork source at ${DXVK_SOURCE_DIR}")
+    # iOS needs Patches/dxvk-ios.patch (bundle-relative MoltenVK dlopen + SDL3
+    # drawable fixes) — apply it idempotently: skip when the working tree
+    # already carries it (reverse-check passes), fail the configure otherwise
+    # so an unpatched DXVK can never ship silently.
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+      execute_process(
+        COMMAND git -C "${DXVK_LOCAL_FORK_DIR}" apply --reverse --check "${CMAKE_SOURCE_DIR}/Patches/dxvk-ios.patch"
+        RESULT_VARIABLE DXVK_PATCH_ALREADY_APPLIED
+        ERROR_QUIET)
+      if(NOT DXVK_PATCH_ALREADY_APPLIED EQUAL 0)
+        execute_process(
+          COMMAND git -C "${DXVK_LOCAL_FORK_DIR}" apply "${CMAKE_SOURCE_DIR}/Patches/dxvk-ios.patch"
+          RESULT_VARIABLE DXVK_PATCH_RESULT)
+        if(NOT DXVK_PATCH_RESULT EQUAL 0)
+          message(FATAL_ERROR "Failed to apply Patches/dxvk-ios.patch to references/fbraz3-dxvk — the iOS DXVK build requires it.")
+        endif()
+        message(STATUS "DXVK iOS: applied Patches/dxvk-ios.patch")
+      else()
+        message(STATUS "DXVK iOS: Patches/dxvk-ios.patch already applied")
+      endif()
+    endif()
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # The remote clone has no way to receive the iOS patch; a silent fallback
+    # here previously produced dylibs that die at Vulkan init on device.
+    message(FATAL_ERROR "iOS DXVK requires the local fork submodule. Run: git submodule update --init references/fbraz3-dxvk")
   else()
     set(DXVK_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/dxvk-src-fbraz3")
     message(STATUS "DXVK macOS build: using GitHub source clone at ${DXVK_SOURCE_DIR}")
