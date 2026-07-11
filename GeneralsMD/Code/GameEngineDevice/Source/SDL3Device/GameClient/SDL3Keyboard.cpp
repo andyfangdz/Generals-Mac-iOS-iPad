@@ -31,6 +31,9 @@
 #include "SDL3Device/GameClient/SDL3Keyboard.h"
 #include <cstdio>
 #include <cstring>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 /**
  * Constructor
@@ -259,6 +262,11 @@ KeyVal SDL3Keyboard::translateScanCodeToKeyVal(unsigned char scan)
 		case SDL_SCANCODE_PAGEDOWN: return KEY_PGDN;
 		case SDL_SCANCODE_LSHIFT: return KEY_LSHIFT;
 		case SDL_SCANCODE_RSHIFT: return KEY_RSHIFT;
+#if defined(__APPLE__) && TARGET_OS_OSX
+		// GeneralsX @bugfix MrMeeseeks 16/06/2026 Map Command to Control on macOS for group binding
+		case SDL_SCANCODE_LGUI: return KEY_LCTRL;
+		case SDL_SCANCODE_RGUI: return KEY_RCTRL;
+#endif
 		case SDL_SCANCODE_LCTRL: return KEY_LCTRL;     // GeneralsX @bugfix BenderAI 13/02/2026 Fix key constant name
 		case SDL_SCANCODE_RCTRL: return KEY_RCTRL;     // GeneralsX @bugfix BenderAI 13/02/2026 Fix key constant name
 		case SDL_SCANCODE_LALT: return KEY_LALT;       // GeneralsX @bugfix BenderAI 13/02/2026 Fix key constant name
