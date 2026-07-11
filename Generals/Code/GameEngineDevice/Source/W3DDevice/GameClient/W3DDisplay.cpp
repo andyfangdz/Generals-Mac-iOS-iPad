@@ -37,6 +37,9 @@ static void drawFramerateBar();
 #include <numeric>
 #include <stdlib.h>
 #include <windows.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 // GeneralsX @bugfix BenderAI 10/03/2026 - io.h is Windows-specific, use unistd.h on Linux
 #ifdef _WIN32
 #include <io.h>
@@ -516,8 +519,14 @@ static void SDL3_ApplyWindowModeForRenderConfig(Bool windowed, Int renderWidth, 
 		SDL_DisplayID displayId = SDL_GetDisplayForWindow(TheSDL3Window);
 		const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(displayId);
 		if (mode) {
-			if (!SDL_SetWindowFullscreenMode(TheSDL3Window, mode)) {
-				fprintf(stderr, "WARNING: SDL_SetWindowFullscreenMode(native) failed: %s\n", SDL_GetError());
+#if defined(__APPLE__) && TARGET_OS_OSX
+			// Use the native macOS fullscreen Space instead of exclusive fullscreen.
+			const SDL_DisplayMode* fullscreenMode = nullptr;
+#else
+			const SDL_DisplayMode* fullscreenMode = mode;
+#endif
+			if (!SDL_SetWindowFullscreenMode(TheSDL3Window, fullscreenMode)) {
+				fprintf(stderr, "WARNING: SDL_SetWindowFullscreenMode failed: %s\n", SDL_GetError());
 			}
 		}
 		else {
