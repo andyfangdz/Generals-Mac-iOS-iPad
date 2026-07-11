@@ -117,6 +117,12 @@ ln -sf libdxvk_d3d8.0.dylib "${RUNTIME_DIR}/libdxvk_d3d8.dylib" 2>/dev/null || t
 
 echo "  Deploying Vulkan + MoltenVK libraries..."
 if [[ -n "${VULKAN_SDK_ROOT}" ]]; then
+    # SDK libraries may be installed read-only. Make prior deployed copies
+    # writable so repeated deployments can replace them non-interactively.
+    chmod u+w \
+        "${RUNTIME_DIR}/libvulkan.dylib" \
+        "${RUNTIME_DIR}/libvulkan.1.dylib" \
+        "${RUNTIME_DIR}/libMoltenVK.dylib" 2>/dev/null || true
     # Copy libvulkan loader (DXVK dlopen's "libvulkan.dylib" on macOS)
     cp -v "${VULKAN_SDK_ROOT}/lib/libvulkan.dylib" "${RUNTIME_DIR}/"
     cp -v "${VULKAN_SDK_ROOT}/lib/libvulkan.1.dylib" "${RUNTIME_DIR}/" 2>/dev/null || true
