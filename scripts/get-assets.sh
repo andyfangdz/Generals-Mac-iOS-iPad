@@ -21,7 +21,10 @@ mkdir -p "$TMP_DIR" "$DEST"
 # steamcmd dead. Clear the quarantine flag off the steamcmd install up front.
 if [[ "$(uname)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
     STEAMCMD_CASK="$(brew --prefix)/Caskroom/steamcmd"
-    [[ -d "$STEAMCMD_CASK" ]] && xattr -dr com.apple.quarantine "$STEAMCMD_CASK" 2>/dev/null || true
+    if [[ -d "$STEAMCMD_CASK" ]] && xattr -pr com.apple.quarantine "$STEAMCMD_CASK" >/dev/null 2>&1; then
+        echo "Clearing Gatekeeper quarantine from Homebrew's steamcmd cask: $STEAMCMD_CASK"
+        xattr -dr com.apple.quarantine "$STEAMCMD_CASK" 2>/dev/null || true
+    fi
 fi
 
 # steamcmd and the Steam desktop client share one data directory
