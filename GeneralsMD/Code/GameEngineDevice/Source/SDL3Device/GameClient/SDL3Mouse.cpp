@@ -31,6 +31,9 @@
 #include "SDL3Device/GameClient/SDL3Mouse.h"
 #include <cstdio>
 #include <cstring>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 // GeneralsX @bugfix felipebraz 18/02/2026 Include GameLogic for frame tracking
 #include "GameLogic/GameLogic.h"
@@ -537,6 +540,13 @@ void SDL3Mouse::capture(void)
 		return;
 	}
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// iPad uses an absolute system pointer. Keep the engine's capture state for
+	// edge scrolling without asking UIKit to grab or lock the external pointer.
+	m_IsCaptured = true;
+	onCursorCaptured(true);
+	return;
+#endif
 	// SDL3: Capture mouse to window
 	SDL_CaptureMouse(true);
 
@@ -559,6 +569,12 @@ void SDL3Mouse::releaseCapture(void)
 		return;
 	}
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// No UIKit grab was taken in capture(); only clear the engine state.
+	m_IsCaptured = false;
+	onCursorCaptured(false);
+	return;
+#endif
 	SDL_CaptureMouse(false);
 	if (m_Window) {
 		SDL_SetWindowMouseGrab(m_Window, false);

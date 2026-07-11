@@ -467,10 +467,13 @@ int main(int argc, char* argv[])
 		// Must be done here, not in SDL3GameEngine::init() which is too late
 		fprintf(stderr, "INFO: Initializing SDL3 video subsystem...\n");
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-		// All mouse events are synthesized by the gesture translator in
-		// SDL3GameEngine.cpp; SDL's automatic touch->mouse synthesis would
-		// double-deliver finger 1 and fight the two-finger pan logic.
+		// Keep direct touch and real pointer devices as independent streams.
+		// The gesture translator owns touch input, while an attached mouse or
+		// trackpad should retain native hover, buttons, and scrolling.
 		SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+		SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+		// iPad pointers should remain absolute and visible after clicking.
+		SDL_SetHint(SDL_HINT_MOUSE_AUTO_CAPTURE, "0");
 #endif
 		if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
 			fprintf(stderr, "FATAL: Failed to initialize SDL3: %s\n", SDL_GetError());

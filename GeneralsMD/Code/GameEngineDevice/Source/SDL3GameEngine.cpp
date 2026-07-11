@@ -123,9 +123,10 @@ static bool SDLCALL iosLifecycleWatcher(void *userdata, SDL_Event *event)
 // ---------------------------------------------------------------------------
 // iOS touch -> mouse gesture translation
 //
-// SDL's automatic touch-mouse synthesis is disabled on iOS (SDL3Main.cpp sets
-// SDL_HINT_TOUCH_MOUSE_EVENTS=0); every mouse event the game sees on iOS is
-// synthesized here, through the same SDL3Mouse::addSDLEvent path real mice use.
+// SDL's automatic touch<->mouse synthesis is disabled on iOS. Direct touches
+// are translated here, while an attached mouse or trackpad stays on SDL's real
+// mouse event path. Both ultimately use SDL3Mouse::addSDLEvent, but they never
+// generate duplicate events for each other.
 //
 // Direct-touch RTS controls:
 //   1 finger tap          -> left click (select, activate UI, contextual command)
@@ -240,6 +241,41 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 			break;
 	}
 	mouse->addSDLEvent(&ev);
+}
+
+SDL_MouseID mouseEventDevice(const SDL_Event &event)
+{
+	switch (event.type) {
+		case SDL_EVENT_MOUSE_MOTION:
+			return event.motion.which;
+		case SDL_EVENT_MOUSE_BUTTON_DOWN:
+		case SDL_EVENT_MOUSE_BUTTON_UP:
+			return event.button.which;
+		case SDL_EVENT_MOUSE_WHEEL:
+			return event.wheel.which;
+		default:
+			return 0;
+	}
+}
+
+void cancelTouchForExternalPointer(SDL3Mouse *mouse, SDL_Window *window)
+{
+	// Switching from a finger gesture to a real pointer must not leave a
+	// synthetic mouse button held in the engine.
+	switch (s_touch.phase) {
+		case TouchState::PANNING:
+			sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_UP,
+			                   s_touch.lastX, s_touch.lastY, SDL_BUTTON_RIGHT);
+			break;
+		case TouchState::SELECTING:
+			sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_UP,
+			                   s_touch.lastX, s_touch.lastY, SDL_BUTTON_LEFT);
+			break;
+		default:
+			break;
+	}
+	clearTapHistory();
+	resetTouchState();
 }
 
 void sendMouseClick(SDL3Mouse *mouse, SDL_Window *window, float x, float y,
@@ -835,10 +871,9 @@ void SDL3GameEngine::pollSDL3Events(void)
 			case SDL_EVENT_MOUSE_BUTTON_UP:
 			case SDL_EVENT_MOUSE_WHEEL:
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-				// Belt-and-braces: drop SDL's own touch-synthesized mouse events.
-				// The gesture translator owns all touch->mouse conversion; double
-				// delivery would produce phantom second clicks.
-				if (event.motion.which == SDL_TOUCH_MOUSEID) {
+				// The gesture translator owns touch input. Only genuine external
+				// pointer events may enter this desktop-compatible path.
+				if (mouseEventDevice(event) == SDL_TOUCH_MOUSEID) {
 					break;
 				}
 #endif
@@ -847,6 +882,9 @@ void SDL3GameEngine::pollSDL3Events(void)
 				if (TheMouse) {
 					SDL3Mouse* mouse = dynamic_cast<SDL3Mouse*>(TheMouse);
 					if (mouse) {
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+						cancelTouchForExternalPointer(mouse, m_SDLWindow);
+#endif
 						mouse->addSDLEvent(&event);
 					}
 				}

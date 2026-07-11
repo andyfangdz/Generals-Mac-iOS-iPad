@@ -111,16 +111,11 @@ KeyboardIO *SDL3Keyboard::getKeyboard(void)
 }
 
 /**
- * Get Caps Lock state (Linux stub)
- * Returns 0 (Caps Lock not active) - Windows would query keyboard driver state
- * On Linux/SDL3, we don't track Caps Lock state yet
- * GeneralsX @build fbraz 12/02/2026 Bender
+ * Get the current Caps Lock modifier state from SDL.
  */
 Bool SDL3Keyboard::getCapsState(void)
 {
-	// TODO: Phase 2 - Query SDL3 keyboard modifiers for Caps Lock
-	// For now, assume Caps Lock is not active
-	return 0;
+	return (SDL_GetModState() & SDL_KMOD_CAPS) != 0;
 }
 
 /**
@@ -238,17 +233,12 @@ void SDL3Keyboard::addSDL3KeyEvent(const SDL_KeyboardEvent& event)
 }
 
 /**
- * Translate SDL3 scancode to game KeyDefType
- * For Phase 1.5, minimal mapping - full mapping in Phase 2
+ * Translate SDL3 scancodes used by gameplay and GUI input to game keys.
  */
-KeyVal SDL3Keyboard::translateScanCodeToKeyVal(unsigned char scan)
+KeyVal SDL3Keyboard::translateScanCodeToKeyVal(SDL_Scancode scan)
 {
-	// TODO: Phase 2 - Complete SDL_Scancode → KeyDefType mapping
-	// For now, return KEY_NONE (parent class will handle)
-	
-	// Quick mapping for essential keys
 	// GeneralsX @bugfix felipebraz 01/04/2026 Restore editing/navigation keys required by GUI widgets.
-	switch ((SDL_Scancode)scan) {
+	switch (scan) {
 		case SDL_SCANCODE_ESCAPE: return KEY_ESC;      // GeneralsX @bugfix BenderAI 13/02/2026 Fix key constant name
 		case SDL_SCANCODE_RETURN: return KEY_ENTER;    // GeneralsX @bugfix BenderAI 13/02/2026 Fix key constant name
 		case SDL_SCANCODE_KP_ENTER: return KEY_KPENTER;
@@ -260,10 +250,15 @@ KeyVal SDL3Keyboard::translateScanCodeToKeyVal(unsigned char scan)
 		case SDL_SCANCODE_END: return KEY_END;
 		case SDL_SCANCODE_PAGEUP: return KEY_PGUP;
 		case SDL_SCANCODE_PAGEDOWN: return KEY_PGDN;
+		case SDL_SCANCODE_INSERT: return KEY_INS;
+		case SDL_SCANCODE_CAPSLOCK: return KEY_CAPS;
+		case SDL_SCANCODE_NUMLOCKCLEAR: return KEY_NUM;
+		case SDL_SCANCODE_SCROLLLOCK: return KEY_SCROLL;
+		case SDL_SCANCODE_PRINTSCREEN: return KEY_SYSREQ;
 		case SDL_SCANCODE_LSHIFT: return KEY_LSHIFT;
 		case SDL_SCANCODE_RSHIFT: return KEY_RSHIFT;
-#if defined(__APPLE__) && TARGET_OS_OSX
-		// GeneralsX @bugfix MrMeeseeks 16/06/2026 Map Command to Control on macOS for group binding
+#if defined(__APPLE__)
+		// Map Command to Control for familiar Apple-platform group bindings.
 		case SDL_SCANCODE_LGUI: return KEY_LCTRL;
 		case SDL_SCANCODE_RGUI: return KEY_RCTRL;
 #endif
@@ -304,6 +299,37 @@ KeyVal SDL3Keyboard::translateScanCodeToKeyVal(unsigned char scan)
 		case SDL_SCANCODE_9: return KEY_9;
 		case SDL_SCANCODE_0: return KEY_0;
 		
+		// Punctuation
+		case SDL_SCANCODE_MINUS: return KEY_MINUS;
+		case SDL_SCANCODE_EQUALS: return KEY_EQUAL;
+		case SDL_SCANCODE_LEFTBRACKET: return KEY_LBRACKET;
+		case SDL_SCANCODE_RIGHTBRACKET: return KEY_RBRACKET;
+		case SDL_SCANCODE_SEMICOLON: return KEY_SEMICOLON;
+		case SDL_SCANCODE_APOSTROPHE: return KEY_APOSTROPHE;
+		case SDL_SCANCODE_GRAVE: return KEY_TICK;
+		case SDL_SCANCODE_BACKSLASH: return KEY_BACKSLASH;
+		case SDL_SCANCODE_COMMA: return KEY_COMMA;
+		case SDL_SCANCODE_PERIOD: return KEY_PERIOD;
+		case SDL_SCANCODE_SLASH: return KEY_SLASH;
+		case SDL_SCANCODE_NONUSBACKSLASH: return KEY_102;
+
+		// Keypad
+		case SDL_SCANCODE_KP_0: return KEY_KP0;
+		case SDL_SCANCODE_KP_1: return KEY_KP1;
+		case SDL_SCANCODE_KP_2: return KEY_KP2;
+		case SDL_SCANCODE_KP_3: return KEY_KP3;
+		case SDL_SCANCODE_KP_4: return KEY_KP4;
+		case SDL_SCANCODE_KP_5: return KEY_KP5;
+		case SDL_SCANCODE_KP_6: return KEY_KP6;
+		case SDL_SCANCODE_KP_7: return KEY_KP7;
+		case SDL_SCANCODE_KP_8: return KEY_KP8;
+		case SDL_SCANCODE_KP_9: return KEY_KP9;
+		case SDL_SCANCODE_KP_PERIOD: return KEY_KPDEL;
+		case SDL_SCANCODE_KP_MULTIPLY: return KEY_KPSTAR;
+		case SDL_SCANCODE_KP_MINUS: return KEY_KPMINUS;
+		case SDL_SCANCODE_KP_PLUS: return KEY_KPPLUS;
+		case SDL_SCANCODE_KP_DIVIDE: return KEY_KPSLASH;
+
 		// Letters (A-Z)
 		case SDL_SCANCODE_A: return KEY_A;
 		case SDL_SCANCODE_B: return KEY_B;
@@ -333,7 +359,6 @@ KeyVal SDL3Keyboard::translateScanCodeToKeyVal(unsigned char scan)
 		case SDL_SCANCODE_Z: return KEY_Z;
 		
 		default:
-			// TODO: Phase 2 - Complete mapping
 			return KEY_NONE;
 	}
 }
