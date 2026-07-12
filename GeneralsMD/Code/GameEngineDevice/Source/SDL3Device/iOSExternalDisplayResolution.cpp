@@ -20,6 +20,13 @@
 
 #include <cstdio>
 
+bool GXExternalDisplay_EngineReady(void)
+{
+	return TheDisplay != nullptr && TheWritableGlobalData != nullptr &&
+	       TheHeaderTemplateManager != nullptr && TheMouse != nullptr &&
+	       TheShell != nullptr && TheInGameUI != nullptr && TheTacticalView != nullptr;
+}
+
 // Same recipe as the options screen's resolution apply (OptionsMenu.cpp):
 // setDisplayMode + resolution-dependent subsystem refreshes. No-op before the
 // engine exists — the launch path derives -xres/-yres in SDL3Main instead.

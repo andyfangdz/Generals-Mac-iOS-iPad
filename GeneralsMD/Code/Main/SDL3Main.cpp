@@ -250,6 +250,24 @@ int main(int argc, char* argv[])
 {
 	int exitcode = 1;
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @bugfix 12/07/2026 SDL3's UIKit scene delegate invokes SDL_main
+	// once per CONNECTING SCENE, and iOS connects a second (external-display)
+	// scene when a monitor is attached. That re-entrant second invocation used
+	// to rotate the session log mid-game, fail window creation ("Only one
+	// window allowed per display"), and its error path's SDL_Quit() tore down
+	// video under the running game — the window was never shown (black screen
+	// on both displays). The external scene itself is wanted (the display
+	// manager attaches the game window to it); the second engine is not.
+	{
+		static bool s_mainAlreadyRan = false;
+		if (s_mainAlreadyRan) {
+			return 0;
+		}
+		s_mainAlreadyRan = true;
+	}
+#endif
+
 	// TheSuperHackers @build felipebraz 13/02/2026
 	// Store command line arguments in globals for CommandLine.cpp parser
 	__argc = argc;
@@ -533,12 +551,12 @@ int main(int argc, char* argv[])
 		// the normal command-line path applies them (user-passed flags still win
 		// because the parser lets later arguments override earlier ones... ours go
 		// last, so only add them if the user didn't pass explicit -xres/-yres).
-		// GeneralsX @feature 11/07/2026 If a wired monitor is already attached at
-		// launch, move the window there BEFORE deriving -xres/-yres so the game
-		// resolution matches the monitor, not the phone.
+		// GeneralsX @feature 11/07/2026 Register the window with the external-display
+		// manager. Migration itself cannot happen here: iOS connects the external
+		// UIWindowScene asynchronously (after SDL_main starts), so a launch-attached
+		// monitor is picked up by the per-frame poll once the engine is up, via the
+		// same runtime resolution path as hot-plug.
 		GXExternalDisplay_Startup(TheSDL3Window);
-		GXExternalDisplay_Poll();
-		SDL_SyncWindow(TheSDL3Window);
 		{
 			bool userSetRes = false;
 			for (int i = 1; i < __argc; ++i) {

@@ -62,27 +62,68 @@ UIWindow* gameUIWindow(void)
 		SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
 }
 
-// iOS has no public wired-vs-AirPlay API. Heuristic: AirPlay-to-Apple-TV
-// screens report the .tv interface idiom in their trait collection; wired
-// USB-C/HDMI displays do not. Third-party AirPlay receivers may slip through
-// — GX_EXTERNAL_DISPLAY=off is the escape hatch (and =any embraces AirPlay).
-UIScreen* desiredExternalScreen(void)
+// The app is scene-based (SDL3's UIKit backend adopts UIScene, and its app
+// delegate accepts any connecting session role), so external-display work goes
+// through UIWindowScene: iOS connects a scene for an attached monitor
+// automatically, and windows move between displays by reassigning
+// `windowScene`. Setting `UIWindow.screen` in a scene-based app is a silent
+// no-op — the first on-device test proved it.
+bool screenPassesPolicy(UIScreen* screen)
 {
-	if (s_policy == ExternalDisplayPolicy::Off) {
-		return nil;
+	if (s_policy == ExternalDisplayPolicy::Off || screen == nil ||
+	    screen == [UIScreen mainScreen]) {
+		return false;
 	}
-	for (UIScreen* screen in [UIScreen screens]) {
-		if (screen == [UIScreen mainScreen]) {
+	// iOS has no public wired-vs-AirPlay API. Heuristic: AirPlay-to-Apple-TV
+	// screens report the .tv interface idiom in their trait collection; wired
+	// USB-C/HDMI displays do not. Third-party AirPlay receivers may slip
+	// through — GX_EXTERNAL_DISPLAY=off is the escape hatch (=any embraces AirPlay).
+	if (s_policy == ExternalDisplayPolicy::Wired &&
+	    screen.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomTV) {
+		return false;
+	}
+	return true;
+}
+
+UIWindowScene* desiredExternalScene(void)
+{
+	for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
+		if (![scene isKindOfClass:[UIWindowScene class]]) {
 			continue;
 		}
-		if (s_policy == ExternalDisplayPolicy::Wired &&
-		    screen.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomTV) {
-			fprintf(stderr, "INFO: GXExternalDisplay ignoring AirPlay-like screen\n");
-			continue;
+		UIWindowScene* windowScene = (UIWindowScene*)scene;
+		if (screenPassesPolicy(windowScene.screen)) {
+			return windowScene;
 		}
-		return screen;
 	}
 	return nil;
+}
+
+UIWindowScene* mainWindowScene(void)
+{
+	for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
+		if (![scene isKindOfClass:[UIWindowScene class]]) {
+			continue;
+		}
+		UIWindowScene* windowScene = (UIWindowScene*)scene;
+		if (windowScene.screen == [UIScreen mainScreen]) {
+			return windowScene;
+		}
+	}
+	return nil;
+}
+
+// True while a policy-eligible external screen is attached but its scene has
+// not connected yet — iOS creates the scene asynchronously after the screen
+// appears, so the poll must keep waiting instead of dropping the request.
+bool externalScreenAwaitingScene(void)
+{
+	for (UIScreen* screen in [UIScreen screens]) {
+		if (screenPassesPolicy(screen)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +395,14 @@ void createTrackpadWindow(void)
 	if (s_trackpadWindow) {
 		return;
 	}
-	UIScreen* phone = [UIScreen mainScreen];
-	s_trackpadWindow = [[UIWindow alloc] initWithFrame:phone.bounds];
-	s_trackpadWindow.screen = phone;
+	UIWindowScene* phoneScene = mainWindowScene();
+	if (!phoneScene) {
+		fprintf(stderr, "WARNING: GXExternalDisplay no main window scene for trackpad\n");
+		return;
+	}
+	UIScreen* phone = phoneScene.screen;
+	s_trackpadWindow = [[UIWindow alloc] initWithWindowScene:phoneScene];
+	s_trackpadWindow.frame = phone.bounds;
 	UIViewController* vc = [[UIViewController alloc] init];
 	GXTrackpadView* pad = [[GXTrackpadView alloc] initWithFrame:phone.bounds];
 	pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -386,25 +432,26 @@ void destroyTrackpadWindow(void)
 	s_trackpadWindow = nil;
 }
 
-// Move the SDL window's UIWindow to `screen`. The CAMetalLayer inside SDL's
+// Move the SDL window's UIWindow to `scene`. The CAMetalLayer inside SDL's
 // view hierarchy survives the move, so DXVK experiences it as a resize, not a
 // surface loss. SDL picks up the new size through its view-controller layout
 // callbacks and emits SDL_EVENT_WINDOW_RESIZED.
-bool migrateGameWindowToScreen(UIScreen* screen)
+bool migrateGameWindowToScene(UIWindowScene* scene)
 {
 	UIWindow* window = gameUIWindow();
-	if (!window || !screen) {
+	if (!window || !scene) {
 		return false;
 	}
-	window.screen = screen;
-	window.frame = screen.bounds;
+	window.windowScene = scene;
+	window.frame = scene.screen.bounds;
 	[window setNeedsLayout];
 	[window layoutIfNeeded];
-	int pw = 0, ph = 0;
 	SDL_SyncWindow(s_gameWindow);
+	int lw = 0, lh = 0, pw = 0, ph = 0;
+	SDL_GetWindowSize(s_gameWindow, &lw, &lh);
 	SDL_GetWindowSizeInPixels(s_gameWindow, &pw, &ph);
-	fprintf(stderr, "INFO: GXExternalDisplay migrated window to %s screen, drawable %dx%d\n",
-	        (screen == [UIScreen mainScreen]) ? "main" : "external", pw, ph);
+	fprintf(stderr, "INFO: GXExternalDisplay migrated window to %s scene, window %dx%d pt, drawable %dx%d px\n",
+	        (scene.screen == [UIScreen mainScreen]) ? "main" : "external", lw, lh, pw, ph);
 	return true;
 }
 
@@ -423,9 +470,9 @@ void applyGameResolutionFromWindow(void)
 	GXExternalDisplay_ApplyGameResolution(pw, ph);
 }
 
-void enterExternalMode(UIScreen* screen)
+void enterExternalMode(UIWindowScene* scene)
 {
-	if (!migrateGameWindowToScreen(screen)) {
+	if (!migrateGameWindowToScene(scene)) {
 		fprintf(stderr, "WARNING: GXExternalDisplay migration failed; staying on phone screen\n");
 		return;
 	}
@@ -436,7 +483,7 @@ void enterExternalMode(UIScreen* screen)
 
 void leaveExternalMode(void)
 {
-	migrateGameWindowToScreen([UIScreen mainScreen]);
+	migrateGameWindowToScene(mainWindowScene());
 	s_trackpadActive = false;
 	destroyTrackpadWindow();
 	applyGameResolutionFromWindow();
@@ -469,13 +516,28 @@ void GXExternalDisplay_Poll(void)
 	    (SDL_GetTicks() - s_lastDisplayEventTicks) < DISPLAY_SETTLE_MS) {
 		return; // let rapid plug/unplug settle
 	}
-	s_pendingCheck = false;
 
-	UIScreen* external = desiredExternalScreen();
+	// Reconcile until done: the request stays pending while the external
+	// scene has not connected yet (iOS creates it asynchronously after the
+	// screen appears) or while the engine is still initializing — a runtime
+	// resolution change needs the full subsystem set.
+	UIWindowScene* external = desiredExternalScene();
 	if (external && !s_trackpadActive) {
+		if (!GXExternalDisplay_EngineReady()) {
+			return; // retry next frame
+		}
+		s_pendingCheck = false;
 		enterExternalMode(external);
 	} else if (!external && s_trackpadActive) {
+		if (!GXExternalDisplay_EngineReady()) {
+			return;
+		}
+		s_pendingCheck = false;
 		leaveExternalMode();
+	} else if (!external && !s_trackpadActive && externalScreenAwaitingScene()) {
+		return; // screen attached, scene still connecting — keep waiting
+	} else {
+		s_pendingCheck = false;
 	}
 }
 

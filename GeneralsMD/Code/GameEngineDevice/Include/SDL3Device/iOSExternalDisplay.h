@@ -33,4 +33,9 @@ bool GXExternalDisplay_TrackpadActive(void);
 // ObjC++ TU. No-op before the engine exists.
 void GXExternalDisplay_ApplyGameResolution(int pixelWidth, int pixelHeight);
 
+// Internal: true once the engine subsystems needed by a runtime resolution
+// change exist. Migration waits for this — the external UIWindowScene can
+// connect while the engine is still initializing (launch-attached monitor).
+bool GXExternalDisplay_EngineReady(void);
+
 #endif // TARGET_OS_IPHONE
