@@ -7,6 +7,9 @@
 #include <SDL3/SDL.h>
 #include <cstdio>
 
+// No engine headers here: their Bool/Byte typedefs collide with UIKit's
+// MacTypes. Engine-facing work goes through iOSExternalDisplayResolution.cpp.
+
 namespace {
 
 SDL_Window* s_gameWindow = nullptr;
@@ -61,6 +64,21 @@ bool migrateGameWindowToScreen(UIScreen* screen)
 	return true;
 }
 
+// Re-derive the game's internal resolution from the current drawable size.
+// The engine-facing half lives in iOSExternalDisplayResolution.cpp.
+void applyGameResolutionFromWindow(void)
+{
+	if (!s_gameWindow) {
+		return;
+	}
+	int pw = 0, ph = 0;
+	SDL_GetWindowSizeInPixels(s_gameWindow, &pw, &ph);
+	if (pw <= 0 || ph <= 0) {
+		return;
+	}
+	GXExternalDisplay_ApplyGameResolution(pw, ph);
+}
+
 void enterExternalMode(UIScreen* screen)
 {
 	if (!migrateGameWindowToScreen(screen)) {
@@ -68,14 +86,16 @@ void enterExternalMode(UIScreen* screen)
 		return;
 	}
 	s_trackpadActive = true;
-	// Trackpad window creation lands in Task 4; resolution change in Task 3.
+	// Trackpad window creation lands in Task 4.
+	applyGameResolutionFromWindow();
 }
 
 void leaveExternalMode(void)
 {
 	migrateGameWindowToScreen([UIScreen mainScreen]);
 	s_trackpadActive = false;
-	// Trackpad window teardown lands in Task 4; resolution change in Task 3.
+	// Trackpad window teardown lands in Task 4.
+	applyGameResolutionFromWindow();
 }
 
 } // anonymous namespace

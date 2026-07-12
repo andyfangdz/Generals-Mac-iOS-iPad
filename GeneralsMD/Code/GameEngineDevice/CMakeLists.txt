@@ -216,6 +216,7 @@ else()
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         list(APPEND GAMEENGINEDEVICE_SRC
             Source/SDL3Device/iOSExternalDisplay.mm
+            Source/SDL3Device/iOSExternalDisplayResolution.cpp
         )
         set_source_files_properties(Source/SDL3Device/iOSExternalDisplay.mm
             PROPERTIES

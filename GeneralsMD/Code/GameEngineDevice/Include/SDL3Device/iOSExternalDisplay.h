@@ -27,4 +27,10 @@ void GXExternalDisplay_NotifyDisplayChange(void);
 // touchscreen acts as a trackpad.
 bool GXExternalDisplay_TrackpadActive(void);
 
+// Internal: re-derive the game's internal resolution after a screen change.
+// Lives in iOSExternalDisplayResolution.cpp (a normal C++ TU) because the
+// engine headers' Bool/Byte typedefs collide with UIKit's MacTypes in the
+// ObjC++ TU. No-op before the engine exists.
+void GXExternalDisplay_ApplyGameResolution(int pixelWidth, int pixelHeight);
+
 #endif // TARGET_OS_IPHONE
