@@ -6,6 +6,8 @@
 #import <UIKit/UIKit.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
+#include <cstring>
+#include <strings.h>
 
 // No engine headers here: their Bool/Byte typedefs collide with UIKit's
 // MacTypes. Engine-facing work goes through iOSExternalDisplayResolution.cpp.
@@ -21,6 +23,35 @@ UIWindow* s_trackpadWindow = nil;   // created in Task 4
 // Debounce rapid plug/unplug: act only after the display set is stable.
 const Uint64 DISPLAY_SETTLE_MS = 500;
 
+enum class ExternalDisplayPolicy { Wired, Any, Off };
+
+ExternalDisplayPolicy s_policy = ExternalDisplayPolicy::Wired;
+
+// GX_EXTERNAL_DISPLAY = wired (default) | any | off
+// Tiny standalone parse of Options.ini in the working directory
+// (<bundle>/GameData, set by SDL3Main before window creation); runs once at
+// startup, before the engine's own preferences machinery exists.
+ExternalDisplayPolicy readExternalDisplayPolicy(void)
+{
+	ExternalDisplayPolicy policy = ExternalDisplayPolicy::Wired;
+	FILE* f = fopen("Options.ini", "r");
+	if (!f) {
+		return policy;
+	}
+	char line[256];
+	while (fgets(line, sizeof(line), f)) {
+		char key[64] = {0}, value[64] = {0};
+		if (sscanf(line, " %63[^= \t] = %63s", key, value) == 2 &&
+		    strcmp(key, "GX_EXTERNAL_DISPLAY") == 0) {
+			if (strcasecmp(value, "off") == 0)      policy = ExternalDisplayPolicy::Off;
+			else if (strcasecmp(value, "any") == 0) policy = ExternalDisplayPolicy::Any;
+			else                                    policy = ExternalDisplayPolicy::Wired;
+		}
+	}
+	fclose(f);
+	return policy;
+}
+
 UIWindow* gameUIWindow(void)
 {
 	if (!s_gameWindow) {
@@ -31,13 +62,25 @@ UIWindow* gameUIWindow(void)
 		SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
 }
 
-// Policy (config override lands in Task 6): pick the first non-main screen.
+// iOS has no public wired-vs-AirPlay API. Heuristic: AirPlay-to-Apple-TV
+// screens report the .tv interface idiom in their trait collection; wired
+// USB-C/HDMI displays do not. Third-party AirPlay receivers may slip through
+// — GX_EXTERNAL_DISPLAY=off is the escape hatch (and =any embraces AirPlay).
 UIScreen* desiredExternalScreen(void)
 {
+	if (s_policy == ExternalDisplayPolicy::Off) {
+		return nil;
+	}
 	for (UIScreen* screen in [UIScreen screens]) {
-		if (screen != [UIScreen mainScreen]) {
-			return screen;
+		if (screen == [UIScreen mainScreen]) {
+			continue;
 		}
+		if (s_policy == ExternalDisplayPolicy::Wired &&
+		    screen.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomTV) {
+			fprintf(stderr, "INFO: GXExternalDisplay ignoring AirPlay-like screen\n");
+			continue;
+		}
+		return screen;
 	}
 	return nil;
 }
@@ -404,6 +447,7 @@ void leaveExternalMode(void)
 void GXExternalDisplay_Startup(SDL_Window* window)
 {
 	s_gameWindow = window;
+	s_policy = readExternalDisplayPolicy();
 	s_pendingCheck = true;
 	s_lastDisplayEventTicks = 0; // launch check runs immediately, no settle delay
 	fprintf(stderr, "INFO: GXExternalDisplay startup (screens=%lu)\n",
