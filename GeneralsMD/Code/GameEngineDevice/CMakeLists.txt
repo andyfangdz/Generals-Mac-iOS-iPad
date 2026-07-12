@@ -209,6 +209,22 @@ else()
         Source/VideoDevice/BinkVideoPlayerStub.cpp
     )
 
+    # GeneralsX @feature 11/07/2026 iPhone external-display + trackpad platform layer (ObjC++).
+    # enable_language(OBJCXX) cannot initialize this deep in the tree under the
+    # vcpkg toolchain, so the .mm compiles through the CXX rule with clang's
+    # -xobjective-c++ (last -x flag wins).
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        list(APPEND GAMEENGINEDEVICE_SRC
+            Source/SDL3Device/iOSExternalDisplay.mm
+        )
+        set_source_files_properties(Source/SDL3Device/iOSExternalDisplay.mm
+            PROPERTIES
+                LANGUAGE CXX
+                COMPILE_OPTIONS "-xobjective-c++"
+                # The C++ precompiled header does not apply to ObjC++ translation units.
+                SKIP_PRECOMPILE_HEADERS ON)
+    endif()
+
     # GeneralsX @refactor fbraz3 31/03/2026 OpenALAudioDevice sources moved to Core/GameEngineDevice
     # OpenALAudioManager.cpp, OpenALAudioStream.cpp, OpenALAudioCache.cpp and FFmpegFile.cpp
     # are now provided by corei_gameenginedevice_private when SAGE_USE_OPENAL is enabled.
@@ -251,6 +267,10 @@ target_link_libraries(z_gameenginedevice PUBLIC
 # GeneralsX @build BenderAI 11/02/2026
 if(SAGE_USE_SDL3)
     target_link_libraries(z_gameenginedevice PUBLIC sdl3lib)
+endif()
+# GeneralsX @feature 11/07/2026 Direct UIKit use by the iOS external-display layer.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    target_link_libraries(z_gameenginedevice PUBLIC "-framework UIKit")
 endif()
 # Phase 3: Video playback (FFmpeg) + Phase 2: Audio decoding (FFmpeg)
 # GeneralsX @feature BenderAI 21/02/2026 OpenAL audio backend (Audio + Video via FFmpeg)

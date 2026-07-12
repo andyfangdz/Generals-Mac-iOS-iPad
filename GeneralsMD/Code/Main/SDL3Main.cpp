@@ -54,6 +54,7 @@
 // USER INCLUDES (match WinMain.cpp pattern)
 #include "Lib/BaseType.h"
 #include "Common/CommandLine.h"
+#include "SDL3Device/iOSExternalDisplay.h"
 #include "Common/CriticalSection.h"
 #include "Common/GlobalData.h"
 #include "Common/GameEngine.h"
@@ -532,6 +533,12 @@ int main(int argc, char* argv[])
 		// the normal command-line path applies them (user-passed flags still win
 		// because the parser lets later arguments override earlier ones... ours go
 		// last, so only add them if the user didn't pass explicit -xres/-yres).
+		// GeneralsX @feature 11/07/2026 If a wired monitor is already attached at
+		// launch, move the window there BEFORE deriving -xres/-yres so the game
+		// resolution matches the monitor, not the phone.
+		GXExternalDisplay_Startup(TheSDL3Window);
+		GXExternalDisplay_Poll();
+		SDL_SyncWindow(TheSDL3Window);
 		{
 			bool userSetRes = false;
 			for (int i = 1; i < __argc; ++i) {

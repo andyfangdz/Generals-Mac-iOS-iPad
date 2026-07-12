@@ -32,6 +32,7 @@
 #include "OpenALAudioManager.h"
 #include "SDL3Device/GameClient/SDL3Mouse.h"
 #include "SDL3Device/GameClient/SDL3Keyboard.h"
+#include "SDL3Device/iOSExternalDisplay.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/Keyboard.h"
 #include "GameClient/GameWindow.h"
@@ -581,6 +582,9 @@ void SDL3GameEngine::update(void)
 		SDL_Delay(50);
 		return;
 	}
+	// Frame boundary and foregrounded: safe point to move the window between
+	// screens — no GPU work is in flight.
+	GXExternalDisplay_Poll();
 #endif
 	GameEngine::update();
 }
@@ -733,6 +737,13 @@ void SDL3GameEngine::pollSDL3Events(void)
 				break;
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+			case SDL_EVENT_DISPLAY_ADDED:
+			case SDL_EVENT_DISPLAY_REMOVED:
+				// GeneralsX @feature 11/07/2026 External monitor hot-plug; applied at
+				// the frame boundary by GXExternalDisplay_Poll().
+				GXExternalDisplay_NotifyDisplayChange();
+				break;
+
 			case SDL_EVENT_FINGER_DOWN:
 			case SDL_EVENT_FINGER_MOTION:
 			case SDL_EVENT_FINGER_UP:
