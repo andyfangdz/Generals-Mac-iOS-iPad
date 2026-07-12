@@ -90,7 +90,8 @@ enum MouseButtonState CPP_11(: Int)
 
 class DisplayString;
 
-#define MAX_2D_CURSOR_ANIM_FRAMES 21
+// GeneralsX @bugfix Codex 11/07/2026 Retail ANI cursors contain up to 33 frames and steps.
+#define MAX_2D_CURSOR_ANIM_FRAMES 64
 #define MAX_2D_CURSOR_DIRECTIONS 8
 // MouseIO --------------------------------------------------------------------
 /** @todo this mouse structure needs to be revisited to allow for devices

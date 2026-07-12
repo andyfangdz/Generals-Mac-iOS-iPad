@@ -129,11 +129,15 @@ static void* getChunkData(RIFFChunk* chunk)
  * @param window SDL3 window handle (required for mouse capture)
  */
 SDL3Mouse::SDL3Mouse(SDL_Window* window)
-	: Mouse(),
+	: SDL3MouseBase(),
 	  m_Window(window),
 	  m_IsCaptured(false),
 	  m_IsVisible(true),
 	  m_LostFocus(false),           // GeneralsX @bugfix felipebraz 18/02/2026 Initialize focus state
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	  m_RelativePointerX(0.0f),
+	  m_RelativePointerY(0.0f),
+#endif
 	  m_nextFreeIndex(0),   // Fighter19 pattern: write position for new events
 	  m_nextGetIndex(0),    // Fighter19 pattern: read position for events
 	  m_LeftButtonDownTime(0),
@@ -163,6 +167,13 @@ SDL3Mouse::SDL3Mouse(SDL_Window* window)
 SDL3Mouse::~SDL3Mouse(void)
 {
 	releaseCapture();
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Return pointer ownership to iPadOS when the game mouse shuts down.
+	if (m_Window)
+	{
+		SDL_SetWindowRelativeMouseMode(m_Window, false);
+	}
+#endif
 	// GeneralsX @bugfix BenderAI 18/02/2026 Temporarily disable debug logging (Phase 1.8)
 	// fprintf(stderr, "DEBUG: SDL3Mouse::~SDL3Mouse() destroyed\n");
 }
@@ -374,9 +385,22 @@ void SDL3Mouse::init(void)
 	// GeneralsX @bugfix felipebraz 21/02/2026 Fix mouse click never registering on UI
 	m_inputMovesAbsolute = TRUE;
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Lock the iPad pointer and render contextual game cursors in-engine.
+	m_RelativePointerX = static_cast<float>(m_currMouse.pos.x);
+	m_RelativePointerY = static_cast<float>(m_currMouse.pos.y);
+	W3DMouse::setRedrawMode(RM_POLYGON);
+	if (!SDL_SetWindowRelativeMouseMode(m_Window, true))
+	{
+		DEBUG_LOG(("SDL3Mouse::init: Failed to enable iPad pointer lock [%s]", SDL_GetError()));
+	}
+	SDL_HideCursor();
+	m_IsVisible = true;
+#else
 	// Show cursor by default
 	// GeneralsX @bugfix BenderAI 10/03/2026 - Use setVisibility() to keep m_visible in sync
 	setVisibility(TRUE);
+#endif
 
 	// Clear event buffer - Fighter19 pattern
 	// GeneralsX @refactor felipebraz 16/02/2026
@@ -399,8 +423,15 @@ void SDL3Mouse::reset(void)
 	Mouse::reset();
 
 	releaseCapture();
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Keep pointer lock active across game-state resets.
+	SDL_SetWindowRelativeMouseMode(m_Window, true);
+	SDL_HideCursor();
+	m_IsVisible = true;
+#else
 	// GeneralsX @bugfix BenderAI 10/03/2026 - Use setVisibility() to keep m_visible in sync
 	setVisibility(TRUE);
+#endif
 
 	// Clear event buffer - Fighter19 pattern
 	// GeneralsX @refactor felipebraz 16/02/2026
@@ -424,6 +455,11 @@ void SDL3Mouse::update(void)
  */
 void SDL3Mouse::initCursorResources(void)
 {
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 iPad uses mapped game images instead of native ANI cursors.
+	return;
+#endif
+
 	for (Int cursor=FIRST_CURSOR; cursor<NUM_MOUSE_CURSORS; cursor++)
 	{
 		for (Int direction=0; direction<m_cursorInfo[cursor].numDirections; direction++)
@@ -449,6 +485,13 @@ void SDL3Mouse::initCursorResources(void)
  */
 void SDL3Mouse::setCursor(MouseCursor cursor)
 {
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Select the game's polygon cursor while iPadOS' cursor stays hidden.
+	W3DMouse::setCursor(cursor);
+	SDL_HideCursor();
+	return;
+#endif
+
 	// extend
 	Mouse::setCursor( cursor );
 
@@ -500,6 +543,14 @@ void SDL3Mouse::setCursor(MouseCursor cursor)
  */
 void SDL3Mouse::setVisibility(Bool visible)
 {
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Preserve game visibility semantics without exposing the iPadOS pointer.
+	Mouse::setVisibility(visible);
+	m_IsVisible = visible;
+	SDL_HideCursor();
+	return;
+#endif
+
 	Mouse::setVisibility(visible);  // Keep m_visible in sync (used by setCursor())
 	m_IsVisible = visible;
 
@@ -510,6 +561,42 @@ void SDL3Mouse::setVisibility(Bool visible)
 	}
 }
 
+void SDL3Mouse::setPosition(Int x, Int y)
+{
+	Mouse::setPosition(x, y);
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Keep programmatic cursor moves in sync with relative iPad input.
+	m_RelativePointerX = static_cast<float>(x);
+	m_RelativePointerY = static_cast<float>(y);
+#endif
+}
+
+void SDL3Mouse::draw(void)
+{
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @bugfix Codex 11/07/2026 Use SDL's device registry; iPad relative events may use the global mouse ID.
+	if (SDL_HasMouse() && m_IsVisible)
+	{
+		int logicalWidth = 0;
+		int logicalHeight = 0;
+		int pixelWidth = 0;
+		int pixelHeight = 0;
+		SDL_GetWindowSize(m_Window, &logicalWidth, &logicalHeight);
+		SDL_GetWindowSizeInPixels(m_Window, &pixelWidth, &pixelHeight);
+		if (logicalWidth > 0 && logicalHeight > 0 && pixelWidth > 0 && pixelHeight > 0)
+		{
+			// GeneralsX @bugfix Codex 11/07/2026 Keep 32-point retail cursors legible on Retina displays.
+			const Real scaleX = static_cast<Real>(pixelWidth) / static_cast<Real>(logicalWidth);
+			const Real scaleY = static_cast<Real>(pixelHeight) / static_cast<Real>(logicalHeight);
+			W3DMouse::setPolygonCursorScale((scaleX + scaleY) * 0.5f);
+		}
+		W3DMouse::draw();
+	}
+#else
+	Mouse::draw();
+#endif
+}
+
 /**
  * Handle window losing focus
  */
@@ -517,6 +604,13 @@ void SDL3Mouse::loseFocus()
 {
 	m_LostFocus = true;           // GeneralsX @bugfix felipebraz 18/02/2026 Set focus flag
 	releaseCapture();
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Release pointer lock while iPadOS owns the foreground.
+	if (m_Window)
+	{
+		SDL_SetWindowRelativeMouseMode(m_Window, false);
+	}
+#endif
 }
 
 /**
@@ -525,6 +619,14 @@ void SDL3Mouse::loseFocus()
 void SDL3Mouse::regainFocus()
 {
 	m_LostFocus = false;          // GeneralsX @bugfix felipebraz 18/02/2026 Clear focus flag
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Restore pointer lock before accepting more iPad mouse input.
+	if (m_Window)
+	{
+		SDL_SetWindowRelativeMouseMode(m_Window, true);
+		SDL_HideCursor();
+	}
+#endif
 	// Capture may be re-enabled by game logic
 }
 
@@ -817,6 +919,36 @@ void SDL3Mouse::scaleMouseCoordinates(int rawX, int rawY, Uint32 windowID, int& 
 	scaledY = static_cast<int>(rawY * factorY);
 }
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+void SDL3Mouse::scaleMouseDelta(float rawX, float rawY, Uint32 windowID, float& scaledX, float& scaledY)
+{
+	SDL_Window* window = SDL_GetWindowFromID(windowID);
+	if (!window || !TheDisplay) {
+		scaledX = rawX;
+		scaledY = rawY;
+		return;
+	}
+
+	int sourceWidth = 0;
+	int sourceHeight = 0;
+	int viewportX = 0;
+	int viewportY = 0;
+	if (!TheDisplay->getViewportRect(viewportX, viewportY, sourceWidth, sourceHeight)) {
+		SDL_GetWindowSize(window, &sourceWidth, &sourceHeight);
+	}
+
+	if (sourceWidth <= 0 || sourceHeight <= 0) {
+		scaledX = rawX;
+		scaledY = rawY;
+		return;
+	}
+
+	// GeneralsX @feature Codex 11/07/2026 Scale relative iPad motion without applying viewport offsets.
+	scaledX = rawX * static_cast<float>(TheDisplay->getWidth()) / static_cast<float>(sourceWidth);
+	scaledY = rawY * static_cast<float>(TheDisplay->getHeight()) / static_cast<float>(sourceHeight);
+}
+#endif
+
 /**
  * Add raw SDL_Event to mouse event buffer
  * Fighter19 pattern: unified method that accepts any SDL_Event
@@ -878,6 +1010,9 @@ void SDL3Mouse::translateEvent(UnsignedInt eventIndex, MouseIO *result)
 	// Raw window-pixel coordinates and window ID, extracted per event type
 	int rawX = 0, rawY = 0;
 	Uint32 windowID = 0;
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	SDL_MouseID mouseID = 0;
+#endif
 
 	// Switch on event type and delegate to appropriate translation method
 	switch (event.type) {
@@ -886,6 +1021,9 @@ void SDL3Mouse::translateEvent(UnsignedInt eventIndex, MouseIO *result)
 			rawX     = (int)event.motion.x;
 			rawY     = (int)event.motion.y;
 			windowID = event.motion.windowID;
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+			mouseID   = event.motion.which;
+#endif
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 		case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -893,18 +1031,54 @@ void SDL3Mouse::translateEvent(UnsignedInt eventIndex, MouseIO *result)
 			rawX     = (int)event.button.x;
 			rawY     = (int)event.button.y;
 			windowID = event.button.windowID;
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+			mouseID   = event.button.which;
+#endif
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 			translateWheelEvent(event.wheel, result);
 			rawX     = (int)event.wheel.mouse_x;
 			rawY     = (int)event.wheel.mouse_y;
 			windowID = event.wheel.windowID;
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+			mouseID   = event.wheel.which;
+#endif
 			break;
 		default:
 			// Should not happen (sentinel value)
 			memset(result, 0, sizeof(*result));
 			return;
 	}
+
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @bugfix Codex 11/07/2026 Relative-mode button events may use SDL's global mouse ID (zero).
+	const bool isIndirectPointer = mouseID != SDL_TOUCH_MOUSEID && mouseID != SDL_PEN_MOUSEID;
+	if (isIndirectPointer && m_Window && SDL_GetWindowRelativeMouseMode(m_Window))
+	{
+		if (event.type == SDL_EVENT_MOUSE_MOTION)
+		{
+			float scaledDeltaX = 0.0f;
+			float scaledDeltaY = 0.0f;
+			scaleMouseDelta(event.motion.xrel, event.motion.yrel, windowID, scaledDeltaX, scaledDeltaY);
+			m_RelativePointerX += scaledDeltaX;
+			m_RelativePointerY += scaledDeltaY;
+		}
+
+		const float maxX = TheDisplay && TheDisplay->getWidth() > 0 ?
+			static_cast<float>(TheDisplay->getWidth() - 1) : 799.0f;
+		const float maxY = TheDisplay && TheDisplay->getHeight() > 0 ?
+			static_cast<float>(TheDisplay->getHeight() - 1) : 599.0f;
+		if (m_RelativePointerX < 0.0f) m_RelativePointerX = 0.0f;
+		if (m_RelativePointerY < 0.0f) m_RelativePointerY = 0.0f;
+		if (m_RelativePointerX > maxX) m_RelativePointerX = maxX;
+		if (m_RelativePointerY > maxY) m_RelativePointerY = maxY;
+
+		// GeneralsX @feature Codex 11/07/2026 Feed the game an absolute virtual cursor while SDL owns relative input.
+		result->pos.x = static_cast<Int>(m_RelativePointerX);
+		result->pos.y = static_cast<Int>(m_RelativePointerY);
+		return;
+	}
+#endif
 
 	// Scale from SDL window-pixel space to game internal resolution.
 	// GeneralsX @bugfix felipebraz 20/02/2026 Without this, UI hit-testing fails because
@@ -914,6 +1088,10 @@ void SDL3Mouse::translateEvent(UnsignedInt eventIndex, MouseIO *result)
 	scaleMouseCoordinates(rawX, rawY, windowID, scaledX, scaledY);
 	result->pos.x = scaledX;
 	result->pos.y = scaledY;
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	m_RelativePointerX = static_cast<float>(scaledX);
+	m_RelativePointerY = static_cast<float>(scaledY);
+#endif
 }
 
 #endif // !_WIN32

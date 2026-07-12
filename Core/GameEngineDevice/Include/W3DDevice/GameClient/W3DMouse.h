@@ -82,6 +82,8 @@ public:
 	virtual void setCursor( MouseCursor cursor ) override;		///< set mouse cursor
 	virtual void draw() override;		///< draw the cursor or refresh the image
 	virtual void setRedrawMode(RedrawMode mode) override;	///<set cursor drawing method.
+	void setPolygonCursorScale(Real scale) { m_polygonCursorScale = scale > 0.0f ? scale : 1.0f; }
+	Int getCursorDirectionFrame() const { return m_directionFrame; }
 
 private:
 	MouseCursor m_currentD3DCursor;	///< keep track of last cursor image sent to D3D.
@@ -106,6 +108,7 @@ private:
 	void freeW3DAssets();		///< unload models used by mouse cursors.
 
 	MouseCursor m_currentPolygonCursor;
+	Real m_polygonCursorScale;
 	void initPolygonAssets();		///< load images for cursor polygon.
 	void freePolygonAssets();		///< free images for cursor polygon.
 

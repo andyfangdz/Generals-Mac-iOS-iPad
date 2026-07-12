@@ -124,8 +124,8 @@ static bool SDLCALL iosLifecycleWatcher(void *userdata, SDL_Event *event)
 // iOS touch -> mouse gesture translation
 //
 // SDL's automatic touch-mouse synthesis is disabled on iOS (SDL3Main.cpp sets
-// SDL_HINT_TOUCH_MOUSE_EVENTS=0); every mouse event the game sees on iOS is
-// synthesized here, through the same SDL3Mouse::addSDLEvent path real mice use.
+// SDL_HINT_TOUCH_MOUSE_EVENTS=0). Finger events are synthesized here through
+// the same SDL3Mouse::addSDLEvent path that real mice use.
 //
 // Gestures (matching the game's stock control scheme, which is LMB-centric):
 //   1 finger tap/drag     -> left button click / drag (select, command, drag-box)
@@ -158,11 +158,23 @@ struct TouchState {
 TouchState s_touch;
 
 const Uint64 LONG_PRESS_MS = 600;
+const Uint64 DOUBLE_TAP_MS = 500;
 const float PINCH_STEP_RATIO = 0.06f;  // 6% distance change per wheel tick
-const float TAP_DEAD_ZONE_PX = 8.0f;   // jitter below this keeps a tap a tap
+const float TAP_DEAD_ZONE_PX = 12.0f;  // small finger jitter still counts as a tap
+const float DOUBLE_TAP_RADIUS_PX = 32.0f;
+
+Uint64 s_lastTapTicks = 0;
+float s_lastTapX = 0.0f;
+float s_lastTapY = 0.0f;
+
+void clearTouchTapSequence()
+{
+	s_lastTapTicks = 0;
+}
 
 void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
-                        float x, float y, Uint8 button = 0, float wheelY = 0.0f)
+                        float x, float y, Uint8 button = 0, float wheelY = 0.0f,
+                        Uint8 clicks = 1)
 {
 	// The windowID must be valid: SDL3Mouse::scaleMouseCoordinates() looks the
 	// window up by id to map window points into the game's internal resolution,
@@ -175,20 +187,23 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 	switch (type) {
 		case SDL_EVENT_MOUSE_MOTION:
 			ev.motion.windowID = windowID;
+			ev.motion.which = SDL_TOUCH_MOUSEID;
 			ev.motion.x = x;
 			ev.motion.y = y;
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 		case SDL_EVENT_MOUSE_BUTTON_UP:
 			ev.button.windowID = windowID;
+			ev.button.which = SDL_TOUCH_MOUSEID;
 			ev.button.button = button;
 			ev.button.down = (type == SDL_EVENT_MOUSE_BUTTON_DOWN);
-			ev.button.clicks = 1;
+			ev.button.clicks = clicks;
 			ev.button.x = x;
 			ev.button.y = y;
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 			ev.wheel.windowID = windowID;
+			ev.wheel.which = SDL_TOUCH_MOUSEID;
 			ev.wheel.x = 0.0f;
 			ev.wheel.y = wheelY;
 			ev.wheel.mouse_x = x;
@@ -200,6 +215,7 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 
 void beginPan(SDL3Mouse *mouse, SDL_Window *window, int winW, int winH)
 {
+	clearTouchTapSequence();
 	s_touch.panX = (s_touch.f1x + s_touch.f2x) * 0.5f * (float)winW;
 	s_touch.panY = (s_touch.f1y + s_touch.f2y) * 0.5f * (float)winH;
 	const float dx = (s_touch.f1x - s_touch.f2x) * (float)winW;
@@ -213,6 +229,16 @@ void beginPan(SDL3Mouse *mouse, SDL_Window *window, int winW, int winH)
 
 void handleTouchEvent(SDL3Mouse *mouse, SDL_Window *window, const SDL_Event &event)
 {
+	// GeneralsX @bugfix Codex 11/07/2026 Only the screen belongs to the touch gesture translator.
+	// Trackpads already arrive through SDL's mouse path and must not synthesize a second click.
+	const SDL_TouchDeviceType touchType = SDL_GetTouchDeviceType(event.tfinger.touchID);
+	if (event.tfinger.touchID == SDL_MOUSE_TOUCHID ||
+		touchType == SDL_TOUCH_DEVICE_INDIRECT_ABSOLUTE ||
+		touchType == SDL_TOUCH_DEVICE_INDIRECT_RELATIVE)
+	{
+		return;
+	}
+
 	int winW = 0, winH = 0;
 	SDL_GetWindowSize(window, &winW, &winH);
 	const float px = event.tfinger.x * (float)winW;
@@ -276,10 +302,12 @@ void handleTouchEvent(SDL3Mouse *mouse, SDL_Window *window, const SDL_Event &eve
 		}
 
 		if (s_touch.phase == TouchState::PENDING && event.tfinger.fingerID == s_touch.finger1) {
-			const float moved = SDL_fabsf(px - s_touch.downX) + SDL_fabsf(py - s_touch.downY);
-			if (moved >= TAP_DEAD_ZONE_PX) {
+			const float dx = px - s_touch.downX;
+			const float dy = py - s_touch.downY;
+			if ((dx * dx + dy * dy) >= (TAP_DEAD_ZONE_PX * TAP_DEAD_ZONE_PX)) {
 				// Commit to a drag: anchor the LMB at the original touch point so
 				// drag-boxes start where the finger first landed.
+				clearTouchTapSequence();
 				sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_MOTION, s_touch.downX, s_touch.downY);
 				sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_DOWN,
 				                   s_touch.downX, s_touch.downY, SDL_BUTTON_LEFT);
@@ -320,20 +348,37 @@ void handleTouchEvent(SDL3Mouse *mouse, SDL_Window *window, const SDL_Event &eve
 			break;
 		}
 		switch (s_touch.phase) {
-			case TouchState::PENDING:
+			case TouchState::PENDING: {
 				// A CANCELED touch (incoming call, notification shade, palm
 				// rejection) must not become a committed tap — that would be a
 				// phantom select/command/rally-point click at the cancel point.
 				if (event.type == SDL_EVENT_FINGER_CANCELED) {
+					clearTouchTapSequence();
 					break;
 				}
 				// Clean tap: deliver the full click at the exact press position.
+				// GeneralsX @bugfix Codex 11/07/2026 Preserve a forgiving double-tap across two independently synthesized clicks.
+				const Uint64 tapTicks = SDL_GetTicks();
+				const float tapDx = s_touch.downX - s_lastTapX;
+				const float tapDy = s_touch.downY - s_lastTapY;
+				const bool isDoubleTap = s_lastTapTicks != 0 &&
+					(tapTicks - s_lastTapTicks) <= DOUBLE_TAP_MS &&
+					(tapDx * tapDx + tapDy * tapDy) <= (DOUBLE_TAP_RADIUS_PX * DOUBLE_TAP_RADIUS_PX);
+				const Uint8 clickCount = isDoubleTap ? 2 : 1;
+				if (isDoubleTap) {
+					clearTouchTapSequence();
+				} else {
+					s_lastTapTicks = tapTicks;
+					s_lastTapX = s_touch.downX;
+					s_lastTapY = s_touch.downY;
+				}
 				sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_MOTION, s_touch.downX, s_touch.downY);
 				sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_DOWN,
-				                   s_touch.downX, s_touch.downY, SDL_BUTTON_LEFT);
+				                   s_touch.downX, s_touch.downY, SDL_BUTTON_LEFT, 0.0f, clickCount);
 				sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_UP,
-				                   s_touch.downX, s_touch.downY, SDL_BUTTON_LEFT);
+				                   s_touch.downX, s_touch.downY, SDL_BUTTON_LEFT, 0.0f, clickCount);
 				break;
+			}
 			case TouchState::DRAGGING:
 				sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_UP, px, py, SDL_BUTTON_LEFT);
 				break;
@@ -357,6 +402,7 @@ void updateTouchLongPress(SDL3Mouse *mouse, SDL_Window *window)
 	if (s_touch.phase == TouchState::PENDING &&
 	    (SDL_GetTicks() - s_touch.downTicks) >= LONG_PRESS_MS) {
 		// No LMB was sent yet (deferred), so this is a pure right-click.
+		clearTouchTapSequence();
 		sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_MOTION, s_touch.downX, s_touch.downY);
 		sendSyntheticMouse(mouse, window, SDL_EVENT_MOUSE_BUTTON_DOWN,
 		                   s_touch.downX, s_touch.downY, SDL_BUTTON_RIGHT);
@@ -961,4 +1007,3 @@ AudioManager *SDL3GameEngine::createAudioManager(Bool dummy)
 }
 
 #endif // !_WIN32
-

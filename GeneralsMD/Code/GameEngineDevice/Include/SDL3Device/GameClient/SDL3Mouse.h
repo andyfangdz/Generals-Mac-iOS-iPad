@@ -33,9 +33,19 @@
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 #include <array>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 // USER INCLUDES
 #include "GameClient/Mouse.h"
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+#include "W3DDevice/GameClient/W3DMouse.h"
+// GeneralsX @feature Codex 11/07/2026 Reuse the game-rendered cursor path for pointer-locked iPad mice.
+typedef W3DMouse SDL3MouseBase;
+#else
+typedef Mouse SDL3MouseBase;
+#endif
 
 // FORWARD REFERENCES
 struct AnimatedCursor;
@@ -43,7 +53,7 @@ struct AnimatedCursor;
 // SDL3Mouse ------------------------------------------------------------------
 /** Mouse interface using SDL3 APIs for Linux */
 //-----------------------------------------------------------------------------
-class SDL3Mouse : public Mouse
+class SDL3Mouse : public SDL3MouseBase
 {
 public:
 	SDL3Mouse(SDL_Window* window);
@@ -58,6 +68,8 @@ public:
 	// Mouse interface
 	virtual void setCursor(MouseCursor cursor);
 	virtual void setVisibility(Bool visible);
+	virtual void setPosition(Int x, Int y);
+	virtual void draw(void);
 	virtual void loseFocus();
 	virtual void regainFocus();
 
@@ -84,6 +96,10 @@ private:
 	// Scale raw SDL window coordinates to game internal resolution
 	// GeneralsX @bugfix felipebraz 20/02/2026 Port fighter19 coordinate scaling fix
 	static void scaleMouseCoordinates(int rawX, int rawY, Uint32 windowID, int& scaledX, int& scaledY);
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Convert pointer-lock deltas into the game's logical coordinate space.
+	static void scaleMouseDelta(float rawX, float rawY, Uint32 windowID, float& scaledX, float& scaledY);
+#endif
 
 	// Load cursor from ANI file (fighter19 pattern)
 	// GeneralsX @bugfix BenderAI 22/02/2026 Port fighter19 cursor loading
@@ -107,6 +123,11 @@ private:
 	Bool m_IsCaptured;
 	Bool m_IsVisible;
 	Bool m_LostFocus;             // GeneralsX @bugfix felipebraz 18/02/2026 Track window focus state
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature Codex 11/07/2026 Track the software cursor driven by iPad relative mouse input.
+	float m_RelativePointerX;
+	float m_RelativePointerY;
+#endif
 	
 	// Track button states for click detection
 	Uint32 m_LeftButtonDownTime;

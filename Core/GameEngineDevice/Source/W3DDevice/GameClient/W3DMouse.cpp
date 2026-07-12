@@ -96,6 +96,7 @@ W3DMouse::W3DMouse()
 	m_currentD3DCursor=NONE;
 	m_currentW3DCursor=NONE;
 	m_currentPolygonCursor=NONE;
+	m_polygonCursorScale=1.0f;
 	m_currentAnimFrame = 0;
 	m_currentD3DFrame = 0;
 	m_currentFrames = 0;
@@ -473,6 +474,16 @@ void W3DMouse::setCursor( MouseCursor cursor )
 			m_currentW3DCursor=cursor;
 		}
 	}
+#else
+	// GeneralsX @feature Codex 11/07/2026 Support the game-rendered polygon cursor on pointer-locked iPad.
+	if (m_currentRedrawMode == RM_POLYGON)
+	{
+		setCursorDirection(cursor);
+		m_currentD3DCursor = NONE;
+		m_currentW3DCursor = NONE;
+		m_currentPolygonCursor = cursor;
+		m_currentHotSpot = m_cursorInfo[cursor].hotSpotPosition;
+	}
 #endif
 
 	// save current cursor
@@ -530,11 +541,24 @@ void W3DMouse::draw()
 #endif
 	if (m_currentRedrawMode == RM_POLYGON)
 	{
-		const Image *image=cursorImages[m_currentPolygonCursor];
+		MouseCursor drawCursor = m_currentPolygonCursor;
+#ifndef _WIN32
+		// GeneralsX @bugfix Codex 11/07/2026 The native pointer supplied the default arrow on legacy platforms.
+		// The iPad polygon path must draw that arrow itself; NORMAL is the canonical SCCPointer image.
+		if (drawCursor == NONE || drawCursor == ARROW)
+			drawCursor = NORMAL;
+#endif
+		const Image *image=cursorImages[drawCursor];
 		if (image)
 		{
-			TheDisplay->drawImage(image,m_currMouse.pos.x-m_currentHotSpot.x,m_currMouse.pos.y-m_currentHotSpot.y,
-				m_currMouse.pos.x+image->getImageWidth()-m_currentHotSpot.x, m_currMouse.pos.y+image->getImageHeight()-m_currentHotSpot.y);
+			const ICoord2D &hotSpot = drawCursor == m_currentPolygonCursor ?
+				m_currentHotSpot : m_cursorInfo[drawCursor].hotSpotPosition;
+			const Int hotSpotX = static_cast<Int>(hotSpot.x * m_polygonCursorScale + 0.5f);
+			const Int hotSpotY = static_cast<Int>(hotSpot.y * m_polygonCursorScale + 0.5f);
+			const Int width = static_cast<Int>(image->getImageWidth() * m_polygonCursorScale + 0.5f);
+			const Int height = static_cast<Int>(image->getImageHeight() * m_polygonCursorScale + 0.5f);
+			TheDisplay->drawImage(image,m_currMouse.pos.x-hotSpotX,m_currMouse.pos.y-hotSpotY,
+				m_currMouse.pos.x+width-hotSpotX, m_currMouse.pos.y+height-hotSpotY);
 		}
 	}
 	else if (m_currentRedrawMode == RM_WINDOWS)
@@ -688,7 +712,7 @@ void W3DMouse::setCursorDirection(MouseCursor cursor)
 			offset.normalize();
 			Real theta = atan2(offset.y, offset.x);
 			theta = fmod(theta+M_PI*2,M_PI*2);
-			Int numDirections=m_cursorInfo[m_currentCursor].numDirections;
+			Int numDirections=m_cursorInfo[cursor].numDirections;
 			//Figure out which of our predrawn cursor orientations best matches the
 			//actual cursor direction.  Frame 0 is assumed to point right and continue
 			//clockwise.
