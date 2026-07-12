@@ -748,6 +748,12 @@ void SDL3GameEngine::pollSDL3Events(void)
 			case SDL_EVENT_FINGER_MOTION:
 			case SDL_EVENT_FINGER_UP:
 			case SDL_EVENT_FINGER_CANCELED:
+				// GeneralsX @feature 11/07/2026 In trackpad mode the phone's
+				// touches belong to the UIKit trackpad window; any stray SDL
+				// finger event must not double-drive the cursor.
+				if (GXExternalDisplay_TrackpadActive()) {
+					break;
+				}
 				if (TheMouse && m_SDLWindow) {
 					SDL3Mouse* mouse = dynamic_cast<SDL3Mouse*>(TheMouse);
 					if (mouse) {
@@ -771,7 +777,9 @@ void SDL3GameEngine::pollSDL3Events(void)
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 	// Poll the long-press timer every frame; a stationary finger emits no events.
-	if (TheMouse && m_SDLWindow) {
+	// Not in trackpad mode: a finger that was mid-gesture when the window
+	// migrated would otherwise fire a phantom right-click from stale state.
+	if (TheMouse && m_SDLWindow && !GXExternalDisplay_TrackpadActive()) {
 		SDL3Mouse* touchMouse = dynamic_cast<SDL3Mouse*>(TheMouse);
 		if (touchMouse) {
 			updateTouchLongPress(touchMouse, m_SDLWindow);

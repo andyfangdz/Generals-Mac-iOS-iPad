@@ -29,6 +29,7 @@
 
 // GeneralsX @bugfix BenderAI 13/02/2026 Fix include path (fighter19 pattern)
 #include "SDL3Device/GameClient/SDL3Mouse.h"
+#include "SDL3Device/iOSExternalDisplay.h"
 #include <cstdio>
 #include <cstring>
 
@@ -715,7 +716,9 @@ void SDL3Mouse::draw(void)
 {
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 	// GeneralsX @bugfix Codex 11/07/2026 Use SDL's device registry; iPad relative events may use the global mouse ID.
-	if (SDL_HasMouse() && m_IsVisible)
+	// GeneralsX @feature 11/07/2026 The external-display trackpad drives the
+	// virtual cursor without any mouse device attached.
+	if ((SDL_HasMouse() || GXExternalDisplay_TrackpadActive()) && m_IsVisible)
 	{
 		Real cursorScale = 1.0f;
 		int logicalWidth = 0;
