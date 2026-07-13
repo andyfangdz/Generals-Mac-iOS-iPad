@@ -487,6 +487,28 @@ void applyGameResolutionFromWindow(void)
 	GXExternalDisplay_ApplyGameResolution(pw, ph);
 }
 
+// SDL's scene delegate keeps ONE global pointer to its black launch-cover
+// window. A second scene connection (the external display) overwrites that
+// pointer, orphaning the phone scene's cover — it is never hidden, paints the
+// phone solid black at level Normal+1, and swallows every touch. Hide any
+// such leftover cover on the given scene.
+void hideStaleLaunchCovers(UIWindowScene* scene)
+{
+	if (!scene) {
+		return;
+	}
+	UIWindow* game = gameUIWindow();
+	for (UIWindow* w in scene.windows) {
+		if (w != game && w != s_trackpadWindow && !w.hidden &&
+		    w.windowLevel > UIWindowLevelNormal) {
+			fprintf(stderr, "INFO: GXExternalDisplay hiding stale cover window (level %.1f) on %s screen\n",
+			        (double)w.windowLevel,
+			        (scene.screen == [UIScreen mainScreen]) ? "main" : "external");
+			w.hidden = YES;
+		}
+	}
+}
+
 void enterExternalMode(UIWindowScene* scene)
 {
 	if (!migrateGameWindowToScene(scene)) {
@@ -495,6 +517,8 @@ void enterExternalMode(UIWindowScene* scene)
 	}
 	s_trackpadActive = true;
 	createTrackpadWindow();
+	hideStaleLaunchCovers(mainWindowScene());
+	hideStaleLaunchCovers(scene);
 	applyGameResolutionFromWindow();
 }
 
@@ -503,6 +527,7 @@ void leaveExternalMode(void)
 	migrateGameWindowToScene(mainWindowScene());
 	s_trackpadActive = false;
 	destroyTrackpadWindow();
+	hideStaleLaunchCovers(mainWindowScene());
 	applyGameResolutionFromWindow();
 }
 
