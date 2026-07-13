@@ -406,21 +406,25 @@ void createTrackpadWindow(void)
 	UIViewController* vc = [[UIViewController alloc] init];
 	GXTrackpadView* pad = [[GXTrackpadView alloc] initWithFrame:phone.bounds];
 	pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+	// Visibly a trackpad, not a dead screen: very dark (battery on OLED)
+	// but clearly "on", with readable usage hints.
+	pad.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1.0];
 	UILabel* hint = [[UILabel alloc] initWithFrame:pad.bounds];
 	hint.autoresizingMask = pad.autoresizingMask;
-	hint.text = @"trackpad — tap to click · tap-drag to select · hold for right click\n"
-	            @"two fingers to scroll · pinch to zoom";
+	hint.text = @"TRACKPAD\n\n"
+	            @"move finger — cursor · tap — click · tap-then-drag — select\n"
+	            @"hold — right click · two fingers — scroll · pinch — zoom";
 	hint.numberOfLines = 0;
 	hint.textAlignment = NSTextAlignmentCenter;
-	hint.font = [UIFont systemFontOfSize:14];
-	hint.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+	hint.font = [UIFont systemFontOfSize:15];
+	hint.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
 	hint.userInteractionEnabled = NO;
 	[pad addSubview:hint];
 	vc.view = pad;
 	s_trackpadWindow.rootViewController = vc;
 	s_trackpadWindow.windowLevel = UIWindowLevelNormal;
 	[s_trackpadWindow makeKeyAndVisible];
-	[UIScreen mainScreen].brightness = 0.25; // dim; iOS restores on app exit
+	fprintf(stderr, "INFO: GXExternalDisplay trackpad window shown on phone screen\n");
 }
 
 void destroyTrackpadWindow(void)
