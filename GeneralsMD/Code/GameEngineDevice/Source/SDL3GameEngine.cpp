@@ -658,6 +658,12 @@ void SDL3GameEngine::pollSDL3Events(void)
 
 	updateTextInputState();
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// Deliver pending trackpad touches and their coalesced motion before the
+	// poll below so they are consumed this frame (see iOSExternalDisplay.h).
+	GXExternalDisplay_PumpTrackpadInput();
+#endif
+
 	SDL_Event event;
 	while (SDL_PollEvent(&event)) {
 		switch (event.type) {

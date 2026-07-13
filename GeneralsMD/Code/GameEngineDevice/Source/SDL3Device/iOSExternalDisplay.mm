@@ -144,11 +144,18 @@ const Uint64 TAP_LINK_MS = 300;            // tap-then-press window for drag / d
 const Uint64 TRACKPAD_LONG_PRESS_MS = 600; // stationary hold = right click
 const float PINCH_WHEEL_STEP_RATIO = 0.06f;
 
+void flushPendingMotion(void);
+
 void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
                        Uint8 button = 0, float wheelY = 0.0f, Uint8 clicks = 1)
 {
 	if (!s_gameWindow) {
 		return;
+	}
+	if (type != SDL_EVENT_MOUSE_MOTION) {
+		// Clicks and wheel steps must land at the finger's CURRENT position:
+		// flush any motion accumulated since the last frame first.
+		flushPendingMotion();
 	}
 	const SDL_WindowID windowID = SDL_GetWindowID(s_gameWindow);
 	SDL_Event ev;
@@ -177,6 +184,25 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 			break;
 	}
 	SDL_PushEvent(&ev);
+}
+
+// Finger motion is coalesced: the digitizer reports at 120Hz while the game
+// drains its mouse buffer per engine frame, so per-event pushes back up the
+// queue and the cursor rubber-bands ("very laggy"). Deltas accumulate here
+// and flush as ONE motion event per frame (or right before a button/wheel
+// event, so clicks land at the finger's current position).
+float s_pendingDX = 0.0f;
+float s_pendingDY = 0.0f;
+
+void flushPendingMotion(void)
+{
+	if (s_pendingDX != 0.0f || s_pendingDY != 0.0f) {
+		const float dx = s_pendingDX;
+		const float dy = s_pendingDY;
+		s_pendingDX = 0.0f;
+		s_pendingDY = 0.0f;
+		pushRelativeMouse(SDL_EVENT_MOUSE_MOTION, dx, dy);
+	}
 }
 
 // Three-finger tap: with no keyboard, ESC is otherwise unreachable — it skips
@@ -326,10 +352,8 @@ void pushEscapeKey(void)
 		const float dy = (float)((p1.y - _f1Prev.y) + (p2.y - _f2Prev.y)) * 0.5f;
 		_f1Prev = p1;
 		_f2Prev = p2;
-		if (dx != 0.0f || dy != 0.0f) {
-			pushRelativeMouse(SDL_EVENT_MOUSE_MOTION,
-			                  dx * TRACKPAD_SENSITIVITY, dy * TRACKPAD_SENSITIVITY);
-		}
+		s_pendingDX += dx * TRACKPAD_SENSITIVITY;
+		s_pendingDY += dy * TRACKPAD_SENSITIVITY;
 		const float dist = (float)[self pinchDistance];
 		if (_pinchDist > 1.0f) {
 			const float ratio = dist / _pinchDist;
@@ -352,10 +376,8 @@ void pushEscapeKey(void)
 		if (_f1TotalMove >= TAP_SLOP_PT) {
 			[self cancelLongPress];
 		}
-		if (dx != 0.0f || dy != 0.0f) {
-			pushRelativeMouse(SDL_EVENT_MOUSE_MOTION,
-			                  dx * TRACKPAD_SENSITIVITY, dy * TRACKPAD_SENSITIVITY);
-		}
+		s_pendingDX += dx * TRACKPAD_SENSITIVITY;
+		s_pendingDY += dy * TRACKPAD_SENSITIVITY;
 	}
 }
 
@@ -581,20 +603,28 @@ void GXExternalDisplay_NotifyDisplayChange(void)
 	s_lastDisplayEventTicks = SDL_GetTicks();
 }
 
+void GXExternalDisplay_PumpTrackpadInput(void)
+{
+	if (!s_trackpadActive) {
+		return;
+	}
+	// SDL's event pump slices the runloop in microseconds and never lets it
+	// reach the waiting state, so UIKit's event fetcher (which dispatches
+	// touches onto the main queue on modern iOS) and libdispatch main-queue
+	// blocks starve — proven on device by a dispatch_after that never fired.
+	// Give the runloop one real service window per frame; it returns early
+	// when work arrives, so the cost is ~1ms only when fully idle. Runs at
+	// the top of the frame's event poll so the touches — and the coalesced
+	// motion flushed right after — are consumed THIS frame, not the next.
+	@autoreleasepool {
+		[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+		                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+	}
+	flushPendingMotion();
+}
+
 void GXExternalDisplay_Poll(void)
 {
-	if (s_trackpadActive) {
-		// SDL's event pump slices the runloop in microseconds and never lets it
-		// reach the waiting state, so UIKit's event fetcher (which dispatches
-		// touches onto the main queue on modern iOS) and libdispatch main-queue
-		// blocks starve — proven on device by a dispatch_after that never fired.
-		// Give the runloop one real service window per frame; it returns early
-		// when work arrives, so the cost is ~1ms only when fully idle.
-		@autoreleasepool {
-			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-			                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
-		}
-	}
 	if (!s_pendingCheck || !s_gameWindow) {
 		return;
 	}

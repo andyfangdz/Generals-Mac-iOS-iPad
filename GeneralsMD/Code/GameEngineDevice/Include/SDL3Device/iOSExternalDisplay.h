@@ -23,6 +23,12 @@ void GXExternalDisplay_Poll(void);
 // (SDL_EVENT_DISPLAY_ADDED / SDL_EVENT_DISPLAY_REMOVED).
 void GXExternalDisplay_NotifyDisplayChange(void);
 
+// Call at the TOP of the per-frame SDL event poll. In trackpad mode this
+// services the runloop so UIKit delivers pending touches, then flushes the
+// accumulated finger motion as a single coalesced SDL event — same-frame
+// delivery, and the queue can never back up behind a fast-moving finger.
+void GXExternalDisplay_PumpTrackpadInput(void);
+
 // True while the game window lives on an external screen and the phone
 // touchscreen acts as a trackpad.
 bool GXExternalDisplay_TrackpadActive(void);
