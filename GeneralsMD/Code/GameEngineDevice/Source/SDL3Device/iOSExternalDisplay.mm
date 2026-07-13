@@ -19,8 +19,7 @@ SDL_Window* s_gameWindow = nullptr;
 bool s_trackpadActive = false;
 bool s_pendingCheck = false;
 Uint64 s_lastDisplayEventTicks = 0;
-UIWindow* s_trackpadWindow = nil;   // created in Task 4
-Uint64 s_dumpAtTicks = 0;           // diag: scene-tree dump scheduled on the frame loop
+UIWindow* s_trackpadWindow = nil;
 
 // Debounce rapid plug/unplug: act only after the display set is stable.
 const Uint64 DISPLAY_SETTLE_MS = 500;
@@ -151,11 +150,6 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 	if (!s_gameWindow) {
 		return;
 	}
-	static bool s_loggedFirstPush = false;
-	if (!s_loggedFirstPush) {
-		s_loggedFirstPush = true;
-		fprintf(stderr, "INFO: GXExternalDisplay first synthetic mouse event (type 0x%x)\n", type);
-	}
 	const SDL_WindowID windowID = SDL_GetWindowID(s_gameWindow);
 	SDL_Event ev;
 	SDL_zero(ev);
@@ -183,6 +177,26 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 			break;
 	}
 	SDL_PushEvent(&ev);
+}
+
+// Three-finger tap: with no keyboard, ESC is otherwise unreachable — it skips
+// cutscenes and opens the in-game menu.
+void pushEscapeKey(void)
+{
+	if (!s_gameWindow) {
+		return;
+	}
+	const SDL_WindowID windowID = SDL_GetWindowID(s_gameWindow);
+	for (int down = 1; down >= 0; --down) {
+		SDL_Event ev;
+		SDL_zero(ev);
+		ev.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+		ev.key.windowID = windowID;
+		ev.key.scancode = SDL_SCANCODE_ESCAPE;
+		ev.key.key = SDLK_ESCAPE;
+		ev.key.down = (down != 0);
+		SDL_PushEvent(&ev);
+	}
 }
 
 } // anonymous namespace (reopened below; ObjC classes live at file scope)
@@ -252,11 +266,6 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 
 - (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event
 {
-	static bool s_loggedFirstTouch = false;
-	if (!s_loggedFirstTouch) {
-		s_loggedFirstTouch = true;
-		fprintf(stderr, "INFO: GXExternalDisplay trackpad received first touch\n");
-	}
 	for (UITouch* touch in touches) {
 		if (!_finger1) {
 			_finger1 = touch;
@@ -290,8 +299,16 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 			_panning = YES;
 			_pinchDist = (float)[self pinchDistance];
 			pushRelativeMouse(SDL_EVENT_MOUSE_BUTTON_DOWN, 0, 0, SDL_BUTTON_RIGHT);
+		} else if (_panning) {
+			// Third finger: ESC (skip cutscene / in-game menu). End the scroll
+			// first so the game does not see a stuck right-button.
+			pushRelativeMouse(SDL_EVENT_MOUSE_BUTTON_UP, 0, 0, SDL_BUTTON_RIGHT);
+			_panning = NO;
+			_finger1 = nil;
+			_finger2 = nil;
+			_lastTapTicks = 0;
+			pushEscapeKey();
 		}
-		// Third and later fingers: ignored.
 	}
 }
 
@@ -425,7 +442,8 @@ void createTrackpadWindow(void)
 	hint.autoresizingMask = pad.autoresizingMask;
 	hint.text = @"TRACKPAD\n\n"
 	            @"move finger — cursor · tap — click · tap-then-drag — select\n"
-	            @"hold — right click · two fingers — scroll · pinch — zoom";
+	            @"hold — right click · two fingers — scroll · pinch — zoom\n"
+	            @"three fingers — esc (skip / menu)";
 	hint.numberOfLines = 0;
 	hint.textAlignment = NSTextAlignmentCenter;
 	hint.font = [UIFont systemFontOfSize:15];
@@ -517,34 +535,6 @@ void hideStaleLaunchCovers(UIWindowScene* scene)
 	}
 }
 
-// GeneralsX @diag 12/07/2026 Ground-truth dump of every scene and window —
-// the trackpad window claims key+visible yet the phone shows nothing.
-void dumpSceneTree(const char* tag)
-{
-	for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
-		if (![scene isKindOfClass:[UIWindowScene class]]) {
-			fprintf(stderr, "DIAG[%s]: scene %s (not a window scene)\n", tag,
-			        [NSStringFromClass([scene class]) UTF8String]);
-			continue;
-		}
-		UIWindowScene* ws = (UIWindowScene*)scene;
-		fprintf(stderr, "DIAG[%s]: scene %s role=%s state=%ld screen=%.0fx%.0f main=%d\n", tag,
-		        [NSStringFromClass([ws class]) UTF8String],
-		        [ws.session.role UTF8String],
-		        (long)ws.activationState,
-		        ws.screen.bounds.size.width, ws.screen.bounds.size.height,
-		        (int)(ws.screen == [UIScreen mainScreen]));
-		for (UIWindow* w in ws.windows) {
-			fprintf(stderr, "DIAG[%s]:   window %s frame=%.0f,%.0f %.0fx%.0f level=%.1f hidden=%d key=%d alpha=%.2f trackpad=%d game=%d\n",
-			        tag, [NSStringFromClass([w class]) UTF8String],
-			        w.frame.origin.x, w.frame.origin.y,
-			        w.frame.size.width, w.frame.size.height,
-			        (double)w.windowLevel, (int)w.hidden, (int)w.isKeyWindow,
-			        (double)w.alpha, (int)(w == s_trackpadWindow), (int)(w == gameUIWindow()));
-		}
-	}
-}
-
 void enterExternalMode(UIWindowScene* scene)
 {
 	if (!migrateGameWindowToScene(scene)) {
@@ -556,8 +546,12 @@ void enterExternalMode(UIWindowScene* scene)
 	hideStaleLaunchCovers(mainWindowScene());
 	hideStaleLaunchCovers(scene);
 	applyGameResolutionFromWindow();
-	dumpSceneTree("enter");
-	s_dumpAtTicks = SDL_GetTicks() + 3000; // dispatch_after starves; use the frame loop
+	// The resolution change raises the game window (SDL_RaiseWindow ==
+	// makeKeyAndVisible), moving the app's key window onto the
+	// NON-INTERACTIVE external scene — iOS then drops every phone touch.
+	// The trackpad window must end up key, so re-assert it LAST.
+	[s_trackpadWindow makeKeyAndVisible];
+	[CATransaction flush];
 }
 
 void leaveExternalMode(void)
@@ -589,9 +583,17 @@ void GXExternalDisplay_NotifyDisplayChange(void)
 
 void GXExternalDisplay_Poll(void)
 {
-	if (s_dumpAtTicks != 0 && SDL_GetTicks() >= s_dumpAtTicks) {
-		s_dumpAtTicks = 0;
-		dumpSceneTree("enter+3s");
+	if (s_trackpadActive) {
+		// SDL's event pump slices the runloop in microseconds and never lets it
+		// reach the waiting state, so UIKit's event fetcher (which dispatches
+		// touches onto the main queue on modern iOS) and libdispatch main-queue
+		// blocks starve — proven on device by a dispatch_after that never fired.
+		// Give the runloop one real service window per frame; it returns early
+		// when work arrives, so the cost is ~1ms only when fully idle.
+		@autoreleasepool {
+			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+			                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+		}
 	}
 	if (!s_pendingCheck || !s_gameWindow) {
 		return;

@@ -787,6 +787,16 @@ void SDL3Mouse::draw(void)
 			{
 				image = createIOSCursorFrame(animated->m_frameSurfaces[frame],
 					&s_iOSCursorTextures[drawCursor][direction][frame]);
+				if (!image)
+				{
+					// GeneralsX @diag 12/07/2026 Texture upload failed — cursor invisible.
+					static bool s_loggedFrameFail = false;
+					if (!s_loggedFrameFail) {
+						s_loggedFrameFail = true;
+						fprintf(stderr, "DIAG[draw]: createIOSCursorFrame FAILED cursor=%d frame=%d\n",
+						        (int)drawCursor, (int)frame);
+					}
+				}
 			}
 
 			if (image)
@@ -1264,17 +1274,6 @@ void SDL3Mouse::translateEvent(UnsignedInt eventIndex, MouseIO *result)
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 	// GeneralsX @bugfix Codex 11/07/2026 Relative-mode button events may use SDL's global mouse ID (zero).
 	const bool isIndirectPointer = mouseID != SDL_TOUCH_MOUSEID && mouseID != SDL_PEN_MOUSEID;
-	{
-		// GeneralsX @diag 12/07/2026 One-shot routing trace: shows whether the
-		// first indirect event takes the virtual-cursor branch (needs relative
-		// mouse mode) or falls through to absolute scaling.
-		static bool s_loggedFirstIndirect = false;
-		if (isIndirectPointer && !s_loggedFirstIndirect) {
-			s_loggedFirstIndirect = true;
-			fprintf(stderr, "INFO: first indirect mouse event: id=%u relativeMode=%d\n",
-			        (unsigned)mouseID, m_Window ? (int)SDL_GetWindowRelativeMouseMode(m_Window) : -1);
-		}
-	}
 	if (isIndirectPointer && m_Window && SDL_GetWindowRelativeMouseMode(m_Window))
 	{
 		if (event.type == SDL_EVENT_MOUSE_MOTION)
