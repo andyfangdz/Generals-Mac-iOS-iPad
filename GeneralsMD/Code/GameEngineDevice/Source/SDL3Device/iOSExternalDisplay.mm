@@ -4,6 +4,7 @@
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +20,7 @@ bool s_trackpadActive = false;
 bool s_pendingCheck = false;
 Uint64 s_lastDisplayEventTicks = 0;
 UIWindow* s_trackpadWindow = nil;   // created in Task 4
+Uint64 s_dumpAtTicks = 0;           // diag: scene-tree dump scheduled on the frame loop
 
 // Debounce rapid plug/unplug: act only after the display set is stable.
 const Uint64 DISPLAY_SETTLE_MS = 500;
@@ -434,6 +436,11 @@ void createTrackpadWindow(void)
 	s_trackpadWindow.rootViewController = vc;
 	s_trackpadWindow.windowLevel = UIWindowLevelNormal;
 	[s_trackpadWindow makeKeyAndVisible];
+	// The engine owns the main thread and SDL's event pump runs the runloop in
+	// microsecond slices that never reach the CoreAnimation commit observer —
+	// a window created mid-game-loop would never composite (black screen) nor
+	// register with the render server for touch routing. Commit it NOW.
+	[CATransaction flush];
 	fprintf(stderr, "INFO: GXExternalDisplay trackpad window shown: key=%d hidden=%d frame=%.0fx%.0f sceneState=%ld\n",
 	        (int)s_trackpadWindow.isKeyWindow, (int)s_trackpadWindow.hidden,
 	        s_trackpadWindow.frame.size.width, s_trackpadWindow.frame.size.height,
@@ -463,6 +470,7 @@ bool migrateGameWindowToScene(UIWindowScene* scene)
 	window.frame = scene.screen.bounds;
 	[window setNeedsLayout];
 	[window layoutIfNeeded];
+	[CATransaction flush]; // see createTrackpadWindow: the runloop's CA commit never runs
 	SDL_SyncWindow(s_gameWindow);
 	int lw = 0, lh = 0, pw = 0, ph = 0;
 	SDL_GetWindowSize(s_gameWindow, &lw, &lh);
@@ -509,6 +517,34 @@ void hideStaleLaunchCovers(UIWindowScene* scene)
 	}
 }
 
+// GeneralsX @diag 12/07/2026 Ground-truth dump of every scene and window —
+// the trackpad window claims key+visible yet the phone shows nothing.
+void dumpSceneTree(const char* tag)
+{
+	for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
+		if (![scene isKindOfClass:[UIWindowScene class]]) {
+			fprintf(stderr, "DIAG[%s]: scene %s (not a window scene)\n", tag,
+			        [NSStringFromClass([scene class]) UTF8String]);
+			continue;
+		}
+		UIWindowScene* ws = (UIWindowScene*)scene;
+		fprintf(stderr, "DIAG[%s]: scene %s role=%s state=%ld screen=%.0fx%.0f main=%d\n", tag,
+		        [NSStringFromClass([ws class]) UTF8String],
+		        [ws.session.role UTF8String],
+		        (long)ws.activationState,
+		        ws.screen.bounds.size.width, ws.screen.bounds.size.height,
+		        (int)(ws.screen == [UIScreen mainScreen]));
+		for (UIWindow* w in ws.windows) {
+			fprintf(stderr, "DIAG[%s]:   window %s frame=%.0f,%.0f %.0fx%.0f level=%.1f hidden=%d key=%d alpha=%.2f trackpad=%d game=%d\n",
+			        tag, [NSStringFromClass([w class]) UTF8String],
+			        w.frame.origin.x, w.frame.origin.y,
+			        w.frame.size.width, w.frame.size.height,
+			        (double)w.windowLevel, (int)w.hidden, (int)w.isKeyWindow,
+			        (double)w.alpha, (int)(w == s_trackpadWindow), (int)(w == gameUIWindow()));
+		}
+	}
+}
+
 void enterExternalMode(UIWindowScene* scene)
 {
 	if (!migrateGameWindowToScene(scene)) {
@@ -520,6 +556,8 @@ void enterExternalMode(UIWindowScene* scene)
 	hideStaleLaunchCovers(mainWindowScene());
 	hideStaleLaunchCovers(scene);
 	applyGameResolutionFromWindow();
+	dumpSceneTree("enter");
+	s_dumpAtTicks = SDL_GetTicks() + 3000; // dispatch_after starves; use the frame loop
 }
 
 void leaveExternalMode(void)
@@ -551,6 +589,10 @@ void GXExternalDisplay_NotifyDisplayChange(void)
 
 void GXExternalDisplay_Poll(void)
 {
+	if (s_dumpAtTicks != 0 && SDL_GetTicks() >= s_dumpAtTicks) {
+		s_dumpAtTicks = 0;
+		dumpSceneTree("enter+3s");
+	}
 	if (!s_pendingCheck || !s_gameWindow) {
 		return;
 	}
