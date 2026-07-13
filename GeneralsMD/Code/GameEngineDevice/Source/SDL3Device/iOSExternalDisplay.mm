@@ -149,6 +149,11 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 	if (!s_gameWindow) {
 		return;
 	}
+	static bool s_loggedFirstPush = false;
+	if (!s_loggedFirstPush) {
+		s_loggedFirstPush = true;
+		fprintf(stderr, "INFO: GXExternalDisplay first synthetic mouse event (type 0x%x)\n", type);
+	}
 	const SDL_WindowID windowID = SDL_GetWindowID(s_gameWindow);
 	SDL_Event ev;
 	SDL_zero(ev);
@@ -245,6 +250,11 @@ void pushRelativeMouse(Uint32 type, float dx = 0.0f, float dy = 0.0f,
 
 - (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event
 {
+	static bool s_loggedFirstTouch = false;
+	if (!s_loggedFirstTouch) {
+		s_loggedFirstTouch = true;
+		fprintf(stderr, "INFO: GXExternalDisplay trackpad received first touch\n");
+	}
 	for (UITouch* touch in touches) {
 		if (!_finger1) {
 			_finger1 = touch;
@@ -424,7 +434,10 @@ void createTrackpadWindow(void)
 	s_trackpadWindow.rootViewController = vc;
 	s_trackpadWindow.windowLevel = UIWindowLevelNormal;
 	[s_trackpadWindow makeKeyAndVisible];
-	fprintf(stderr, "INFO: GXExternalDisplay trackpad window shown on phone screen\n");
+	fprintf(stderr, "INFO: GXExternalDisplay trackpad window shown: key=%d hidden=%d frame=%.0fx%.0f sceneState=%ld\n",
+	        (int)s_trackpadWindow.isKeyWindow, (int)s_trackpadWindow.hidden,
+	        s_trackpadWindow.frame.size.width, s_trackpadWindow.frame.size.height,
+	        (long)phoneScene.activationState);
 }
 
 void destroyTrackpadWindow(void)
@@ -548,6 +561,12 @@ void GXExternalDisplay_Poll(void)
 bool GXExternalDisplay_TrackpadActive(void)
 {
 	return s_trackpadActive;
+}
+
+bool GXExternalDisplay_PhoneSceneActive(void)
+{
+	UIWindowScene* scene = mainWindowScene();
+	return scene != nil && scene.activationState == UISceneActivationStateForegroundActive;
 }
 
 #endif // TARGET_OS_IPHONE

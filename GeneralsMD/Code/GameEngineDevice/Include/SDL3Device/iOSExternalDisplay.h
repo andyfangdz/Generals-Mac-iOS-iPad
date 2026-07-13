@@ -27,6 +27,13 @@ void GXExternalDisplay_NotifyDisplayChange(void);
 // touchscreen acts as a trackpad.
 bool GXExternalDisplay_TrackpadActive(void);
 
+// True while the phone's interactive scene is foreground-active. SDL's scene
+// delegate conflates every scene's lifecycle into app-level active/inactive
+// callbacks, and the external-display scene NEVER reports active — so SDL's
+// focus events would pause the engine forever in trackpad mode. This queries
+// UIKit directly for the scene that actually matters.
+bool GXExternalDisplay_PhoneSceneActive(void);
+
 // Internal: re-derive the game's internal resolution after a screen change.
 // Lives in iOSExternalDisplayResolution.cpp (a normal C++ TU) because the
 // engine headers' Bool/Byte typedefs collide with UIKit's MacTypes in the

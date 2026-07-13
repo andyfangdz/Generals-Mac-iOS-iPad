@@ -92,7 +92,18 @@ static std::atomic<bool> s_appInactive{false};
 
 static inline bool iosShouldPauseRendering()
 {
-	return s_appBackgrounded.load() || s_appInactive.load();
+	if (!s_appBackgrounded.load() && !s_appInactive.load()) {
+		return false;
+	}
+	// GeneralsX @bugfix 12/07/2026 SDL's scene delegate reports EVERY scene's
+	// lifecycle as app-level active/inactive, and the external-display scene
+	// never becomes active — its connect alone would pause the engine forever.
+	// UIKit's own state for the phone's interactive scene is the truth: if it
+	// is foreground-active, the app is genuinely in front and must keep running.
+	if (GXExternalDisplay_PhoneSceneActive()) {
+		return false;
+	}
+	return true;
 }
 
 static bool SDLCALL iosLifecycleWatcher(void *userdata, SDL_Event *event)
@@ -100,9 +111,11 @@ static bool SDLCALL iosLifecycleWatcher(void *userdata, SDL_Event *event)
 	switch (event->type) {
 		case SDL_EVENT_WILL_ENTER_BACKGROUND:
 		case SDL_EVENT_DID_ENTER_BACKGROUND:
+			fprintf(stderr, "INFO: iOS lifecycle: background (event 0x%x)\n", event->type);
 			s_appBackgrounded.store(true);
 			break;
 		case SDL_EVENT_DID_ENTER_FOREGROUND:
+			fprintf(stderr, "INFO: iOS lifecycle: foreground\n");
 			s_appBackgrounded.store(false);
 			break;
 		// Resign/become active. On iOS, SDL maps applicationWillResignActive ->
@@ -579,6 +592,15 @@ void SDL3GameEngine::update(void)
 	// across repeated suspend/switcher cycles, crashes MoltenVK. Keep polling so
 	// we still catch the resume events; just don't touch the GPU.
 	if (iosShouldPauseRendering()) {
+		// Diagnosability: a stuck pause looks like frozen input; say so.
+		static Uint64 s_lastPauseLog = 0;
+		const Uint64 now = SDL_GetTicks();
+		if (now - s_lastPauseLog > 5000) {
+			s_lastPauseLog = now;
+			fprintf(stderr, "INFO: render paused (backgrounded=%d inactive=%d phoneSceneActive=%d)\n",
+			        (int)s_appBackgrounded.load(), (int)s_appInactive.load(),
+			        (int)GXExternalDisplay_PhoneSceneActive());
+		}
 		SDL_Delay(50);
 		return;
 	}
@@ -656,6 +678,16 @@ void SDL3GameEngine::pollSDL3Events(void)
 				break;
 
 			case SDL_EVENT_WINDOW_FOCUS_LOST:
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+				// GeneralsX @bugfix 12/07/2026 The external-display scene's
+				// lifecycle arrives as app focus events; losing "focus" to a
+				// non-interactive scene must not disable pointer lock or pause
+				// input while the phone's own scene stays foreground-active.
+				if (GXExternalDisplay_PhoneSceneActive()) {
+					fprintf(stderr, "INFO: ignoring focus-lost (phone scene still active)\n");
+					break;
+				}
+#endif
 				m_IsActive = false;
 				if (m_IsTextInputActive) {
 					SDL_StopTextInput(m_SDLWindow);
