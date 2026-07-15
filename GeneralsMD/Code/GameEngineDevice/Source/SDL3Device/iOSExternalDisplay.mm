@@ -612,13 +612,19 @@ void GXExternalDisplay_PumpTrackpadInput(void)
 	// reach the waiting state, so UIKit's event fetcher (which dispatches
 	// touches onto the main queue on modern iOS) and libdispatch main-queue
 	// blocks starve — proven on device by a dispatch_after that never fired.
-	// Give the runloop one real service window per frame; it returns early
-	// when work arrives, so the cost is ~1ms only when fully idle. Runs at
-	// the top of the frame's event poll so the touches — and the coalesced
-	// motion flushed right after — are consumed THIS frame, not the next.
+	// Service the runloop until it goes quiet (each pass handles one queued
+	// source; a pass that times out means nothing is pending), so UIKit's
+	// internal event queue fully drains every frame instead of replaying old
+	// touches one batch per frame. Bounded at 4ms as a safety valve; the idle
+	// cost is a single ~1ms pass. Runs at the top of the frame's event poll
+	// so the coalesced motion flushed right after is consumed THIS frame.
 	@autoreleasepool {
-		[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-		                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+		const CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + 0.004;
+		while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, TRUE) == kCFRunLoopRunHandledSource) {
+			if (CFAbsoluteTimeGetCurrent() > deadline) {
+				break;
+			}
+		}
 	}
 	flushPendingMotion();
 }
