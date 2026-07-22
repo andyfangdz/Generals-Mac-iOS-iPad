@@ -643,8 +643,8 @@ void SDL3Mouse::capture(void)
 	}
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// iPad uses an absolute system pointer. Keep the engine's capture state for
-	// edge scrolling without asking UIKit to grab or lock the external pointer.
+	// Pointer lock already confines the pointer on iOS; keep the engine's
+	// capture state for edge scrolling without taking a UIKit grab.
 	m_IsCaptured = true;
 	onCursorCaptured(true);
 	return;

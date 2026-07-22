@@ -229,15 +229,22 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 	SDL_zero(ev);
 	ev.type = type;
 	ev.common.timestamp = SDL_GetTicksNS();
+	// GeneralsX @bugfix 13/07/2026 Tag synthetic touch events with the touch
+	// device ID. A zero `which` reads as an indirect pointer in SDL3Mouse's
+	// translateEvent and — with pointer lock active — would route absolute tap
+	// coordinates into the RELATIVE virtual-cursor branch (whose xrel/yrel are
+	// zero here): gestures would move nothing and click at stale positions.
 	switch (type) {
 		case SDL_EVENT_MOUSE_MOTION:
 			ev.motion.windowID = windowID;
+			ev.motion.which = SDL_TOUCH_MOUSEID;
 			ev.motion.x = x;
 			ev.motion.y = y;
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 		case SDL_EVENT_MOUSE_BUTTON_UP:
 			ev.button.windowID = windowID;
+			ev.button.which = SDL_TOUCH_MOUSEID;
 			ev.button.button = button;
 			ev.button.down = (type == SDL_EVENT_MOUSE_BUTTON_DOWN);
 			ev.button.clicks = clicks;
@@ -246,6 +253,7 @@ void sendSyntheticMouse(SDL3Mouse *mouse, SDL_Window *window, Uint32 type,
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 			ev.wheel.windowID = windowID;
+			ev.wheel.which = SDL_TOUCH_MOUSEID;
 			ev.wheel.x = 0.0f;
 			ev.wheel.y = wheelY;
 			ev.wheel.mouse_x = x;
