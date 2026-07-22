@@ -741,6 +741,12 @@ void SDL3Mouse::draw(void)
 			W3DMouse::setPolygonCursorScale(cursorScale);
 		}
 
+		// GeneralsX @bugfix 13/07/2026 Re-select the cursor every frame, exactly
+		// like W3DMouse::draw() does: setCursor -> setCursorDirection reads the
+		// live scroll vector. Without this the directional scroll cursor froze
+		// on the frame chosen when scrolling began (frame 0 = right arrow).
+		W3DMouse::setCursor(getMouseCursor());
+
 		MouseCursor drawCursor = getMouseCursor();
 		if (drawCursor == NONE || drawCursor == ARROW)
 			drawCursor = NORMAL;
