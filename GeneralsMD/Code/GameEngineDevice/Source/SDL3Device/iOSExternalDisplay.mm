@@ -589,6 +589,15 @@ void leaveExternalMode(void)
 
 void GXExternalDisplay_Startup(SDL_Window* window)
 {
+	// iPhone only: iPads manage external displays natively (Stage Manager
+	// places the fullscreen window on whichever display it is launched on),
+	// so the trackpad/migration machinery must stay out of the way there.
+	// The SDL_main re-entry guard and the external-scene lifecycle fixes are
+	// NOT gated here — those protect iPads too.
+	if ([UIDevice currentDevice].userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+		fprintf(stderr, "INFO: GXExternalDisplay disabled (not an iPhone)\n");
+		return;
+	}
 	s_gameWindow = window;
 	s_policy = readExternalDisplayPolicy();
 	s_pendingCheck = true;
