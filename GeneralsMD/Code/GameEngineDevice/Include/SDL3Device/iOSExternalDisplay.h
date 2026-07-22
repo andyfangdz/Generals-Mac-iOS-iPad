@@ -33,11 +33,6 @@ void GXExternalDisplay_PumpTrackpadInput(void);
 // touchscreen acts as a trackpad.
 bool GXExternalDisplay_TrackpadActive(void);
 
-// True on iPhone-idiom devices. The pointer-lock/virtual-cursor mouse model
-// (and the trackpad feature it serves) is iPhone-only; iPads use the native
-// absolute pointer model and manage external displays themselves.
-bool GXExternalDisplay_IsPhoneIdiom(void);
-
 // True while the phone's interactive scene is foreground-active. SDL's scene
 // delegate conflates every scene's lifecycle into app-level active/inactive
 // callbacks, and the external-display scene NEVER reports active — so SDL's

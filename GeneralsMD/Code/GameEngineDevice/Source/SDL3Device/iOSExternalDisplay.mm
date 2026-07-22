@@ -677,11 +677,6 @@ bool GXExternalDisplay_TrackpadActive(void)
 	return s_trackpadActive;
 }
 
-bool GXExternalDisplay_IsPhoneIdiom(void)
-{
-	return [UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPhone;
-}
-
 bool GXExternalDisplay_PhoneSceneActive(void)
 {
 	UIWindowScene* scene = mainWindowScene();
