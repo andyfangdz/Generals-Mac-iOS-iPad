@@ -237,6 +237,8 @@ cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Generals needs local network access to discover LAN games on your Wi-Fi or Ethernet subnet.</string>
 </dict>
 </plist>
 PLIST

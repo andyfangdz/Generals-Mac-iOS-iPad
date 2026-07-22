@@ -32,6 +32,9 @@
 #include "SDL3Device/iOSExternalDisplay.h"
 #include <cstdio>
 #include <cstring>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 // GeneralsX @bugfix felipebraz 18/02/2026 Include GameLogic for frame tracking
 #include "GameLogic/GameLogic.h"
@@ -529,15 +532,24 @@ void SDL3Mouse::init(void)
 	m_inputMovesAbsolute = TRUE;
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// GeneralsX @feature Codex 11/07/2026 Lock the iPad pointer and render contextual game cursors in-engine.
-	m_RelativePointerX = static_cast<float>(m_currMouse.pos.x);
-	m_RelativePointerY = static_cast<float>(m_currMouse.pos.y);
-	W3DMouse::setRedrawMode(RM_POLYGON);
-	if (!SDL_SetWindowRelativeMouseMode(m_Window, true))
+	// GeneralsX @feature 12/07/2026 iPhone only: pointer lock + engine-rendered
+	// cursors feed the external-display trackpad's virtual cursor. iPads keep
+	// the fork's native absolute pointer model.
+	if (GXExternalDisplay_IsPhoneIdiom())
 	{
-		DEBUG_LOG(("SDL3Mouse::init: Failed to enable iPad pointer lock [%s]", SDL_GetError()));
+		m_RelativePointerX = static_cast<float>(m_currMouse.pos.x);
+		m_RelativePointerY = static_cast<float>(m_currMouse.pos.y);
+		W3DMouse::setRedrawMode(RM_POLYGON);
+		if (!SDL_SetWindowRelativeMouseMode(m_Window, true))
+		{
+			DEBUG_LOG(("SDL3Mouse::init: Failed to enable iPhone pointer lock [%s]", SDL_GetError()));
+		}
+		SDL_HideCursor();
 	}
-	SDL_HideCursor();
+	else
+	{
+		SDL_ShowCursor();
+	}
 #else
 	// Show cursor by default
 	SDL_ShowCursor();
@@ -566,9 +578,16 @@ void SDL3Mouse::reset(void)
 
 	releaseCapture();
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// GeneralsX @feature Codex 11/07/2026 Keep pointer lock active across game-state resets.
-	SDL_SetWindowRelativeMouseMode(m_Window, true);
-	SDL_HideCursor();
+	// GeneralsX @feature 12/07/2026 Keep pointer lock across resets (iPhone only).
+	if (GXExternalDisplay_IsPhoneIdiom())
+	{
+		SDL_SetWindowRelativeMouseMode(m_Window, true);
+		SDL_HideCursor();
+	}
+	else
+	{
+		SDL_ShowCursor();
+	}
 #else
 	SDL_ShowCursor();
 #endif
@@ -627,10 +646,14 @@ void SDL3Mouse::initCursorResources(void)
 void SDL3Mouse::setCursor(MouseCursor cursor)
 {
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// GeneralsX @feature Codex 11/07/2026 Select the game's polygon cursor while iPadOS' cursor stays hidden.
-	W3DMouse::setCursor(cursor);
-	SDL_HideCursor();
-	return;
+	// GeneralsX @feature 12/07/2026 iPhone renders the game's polygon cursor
+	// while the system pointer stays hidden; iPads use native SDL cursors.
+	if (GXExternalDisplay_IsPhoneIdiom())
+	{
+		W3DMouse::setCursor(cursor);
+		SDL_HideCursor();
+		return;
+	}
 #endif
 
 	// extend
@@ -685,11 +708,15 @@ void SDL3Mouse::setCursor(MouseCursor cursor)
 void SDL3Mouse::setVisibility(Bool visible)
 {
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// GeneralsX @feature Codex 11/07/2026 Preserve game visibility semantics without exposing the iPadOS pointer.
-	Mouse::setVisibility(visible);
-	m_IsVisible = visible;
-	SDL_HideCursor();
-	return;
+	// GeneralsX @feature 12/07/2026 iPhone: keep the system pointer hidden while
+	// preserving the game's visibility semantics. iPads fall through.
+	if (GXExternalDisplay_IsPhoneIdiom())
+	{
+		Mouse::setVisibility(visible);
+		m_IsVisible = visible;
+		SDL_HideCursor();
+		return;
+	}
 #endif
 
 	// Always tell parent cursor is visible so setCursor() selects the correct cursor type.
@@ -715,6 +742,12 @@ void SDL3Mouse::setPosition(Int x, Int y)
 void SDL3Mouse::draw(void)
 {
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// GeneralsX @feature 12/07/2026 Engine-drawn cursors are the iPhone model;
+	// iPads show the native SDL cursor and draw nothing here.
+	if (!GXExternalDisplay_IsPhoneIdiom())
+	{
+		return;
+	}
 	// GeneralsX @bugfix Codex 11/07/2026 Use SDL's device registry; iPad relative events may use the global mouse ID.
 	// GeneralsX @feature 11/07/2026 The external-display trackpad drives the
 	// virtual cursor without any mouse device attached.
@@ -827,8 +860,8 @@ void SDL3Mouse::loseFocus()
 	m_LostFocus = true;           // GeneralsX @bugfix felipebraz 18/02/2026 Set focus flag
 	releaseCapture();
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// GeneralsX @feature Codex 11/07/2026 Release pointer lock while iPadOS owns the foreground.
-	if (m_Window)
+	// GeneralsX @feature 12/07/2026 Release pointer lock while iOS owns the foreground (iPhone only).
+	if (m_Window && GXExternalDisplay_IsPhoneIdiom())
 	{
 		SDL_SetWindowRelativeMouseMode(m_Window, false);
 	}
@@ -842,8 +875,8 @@ void SDL3Mouse::regainFocus()
 {
 	m_LostFocus = false;          // GeneralsX @bugfix felipebraz 18/02/2026 Clear focus flag
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-	// GeneralsX @feature Codex 11/07/2026 Restore pointer lock before accepting more iPad mouse input.
-	if (m_Window)
+	// GeneralsX @feature 12/07/2026 Restore pointer lock on regain (iPhone only).
+	if (m_Window && GXExternalDisplay_IsPhoneIdiom())
 	{
 		SDL_SetWindowRelativeMouseMode(m_Window, true);
 		SDL_HideCursor();
@@ -861,6 +894,13 @@ void SDL3Mouse::capture(void)
 		return;
 	}
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// iPad uses an absolute system pointer. Keep the engine's capture state for
+	// edge scrolling without asking UIKit to grab or lock the external pointer.
+	m_IsCaptured = true;
+	onCursorCaptured(true);
+	return;
+#endif
 	// SDL3: Capture mouse to window
 	SDL_CaptureMouse(true);
 
@@ -883,6 +923,12 @@ void SDL3Mouse::releaseCapture(void)
 		return;
 	}
 
+#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+	// No UIKit grab was taken in capture(); only clear the engine state.
+	m_IsCaptured = false;
+	onCursorCaptured(false);
+	return;
+#endif
 	SDL_CaptureMouse(false);
 	if (m_Window) {
 		SDL_SetWindowMouseGrab(m_Window, false);

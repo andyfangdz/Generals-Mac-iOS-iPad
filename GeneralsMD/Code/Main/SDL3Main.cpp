@@ -486,15 +486,13 @@ int main(int argc, char* argv[])
 		// Must be done here, not in SDL3GameEngine::init() which is too late
 		fprintf(stderr, "INFO: Initializing SDL3 video subsystem...\n");
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-		// Finger-to-mouse events are synthesized by the gesture translator in
-		// SDL3GameEngine.cpp; SDL's automatic synthesis would double-deliver
-		// finger 1 and fight the two-finger pan logic. Real mouse events remain.
+		// Keep direct touch and real pointer devices as independent streams.
+		// The gesture translator owns touch input, while an attached mouse or
+		// trackpad should retain native hover, buttons, and scrolling.
 		SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
-		// GeneralsX @bugfix Codex 11/07/2026 Do not turn trackpad clicks into touch gestures and back into offset clicks.
 		SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
-		// GeneralsX @tweak Codex 11/07/2026 Allow modest trackpad drift between clicks on a high-DPI iPad display.
-		SDL_SetHint(SDL_HINT_MOUSE_DOUBLE_CLICK_RADIUS, "48");
-		SDL_SetHint(SDL_HINT_MOUSE_DOUBLE_CLICK_TIME, "500");
+		// iPad pointers should remain absolute and visible after clicking.
+		SDL_SetHint(SDL_HINT_MOUSE_AUTO_CAPTURE, "0");
 #endif
 		if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
 			fprintf(stderr, "FATAL: Failed to initialize SDL3: %s\n", SDL_GetError());
